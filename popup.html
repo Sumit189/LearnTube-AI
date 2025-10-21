@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LearnTube AI</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="popup-container">
+    <div class="popup-header">
+      <img src="icons/icon48.png" alt="LearnTube AI" class="header-icon">
+      <div class="header-content">
+        <h1>LearnTube AI</h1>
+        <p>Transform your learning experience</p>
+      </div>
+    </div>
+
+    <div class="popup-section" id="cacheSection">
+      <h2>Cache & Regenerate</h2>
+      <p class="tip-text">Clear cache to regenerate questions for this video or all videos.</p>
+      <div style="margin-top: 12px; display: flex; gap: 12px;">
+        <button id="clearCache" class="btn-primary">Clear This Video</button>
+        <button id="clearAllCache" class="btn-test">Clear All Cache</button>
+      </div>
+    </div>
+
+    <div class="popup-section">
+      <h2>AI Model Status</h2>
+      <div class="model-status">
+        <div class="model-item">
+          <div class="model-info">
+            <div class="model-name">Language Model</div>
+            <div class="model-description">Generates quiz questions</div>
+          </div>
+          <div class="model-status-indicator" id="languageModelStatus">
+            <div class="status-dot"></div>
+            <span class="status-text">Checking...</span>
+            <button class="download-btn" id="downloadLanguageModel" style="display: none;">Download</button>
+            <div class="progress-bar" id="languageModelProgress" style="display: none;">
+              <div class="progress-fill"></div>
+              <span class="progress-text">0%</span>
+            </div>
+          </div>
+        </div>
+        
+        <div class="model-item">
+          <div class="model-info">
+            <div class="model-name">Summarizer</div>
+            <div class="model-description">Creates video summaries</div>
+          </div>
+          <div class="model-status-indicator" id="summarizerStatus">
+            <div class="status-dot"></div>
+            <span class="status-text">Checking...</span>
+            <button class="download-btn" id="downloadSummarizer" style="display: none;">Download</button>
+            <div class="progress-bar" id="summarizerProgress" style="display: none;">
+              <div class="progress-fill"></div>
+              <span class="progress-text">0%</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="popup-section">
+      <h2>Your Progress</h2>
+      <div class="stats-grid">
+        <div class="stat-item">
+          <div class="stat-number" id="totalVideos">0</div>
+          <div class="stat-label">Videos</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-number" id="totalQuizzes">0</div>
+          <div class="stat-label">Quizzes</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-number" id="avgScore">0%</div>
+          <div class="stat-label">Avg Score</div>
+        </div>
+      </div>
+      <div class="share-controls" style="margin-top: 12px; display: flex; align-items: center; gap: 12px; justify-content: space-between;">
+        <div class="share-scope segmented" id="shareScope">
+          <button type="button" class="seg-btn active" data-scope="video">This video</button>
+          <button type="button" class="seg-btn" data-scope="overall">Overall</button>
+        </div>
+        <button id="shareProgress" class="btn-secondary">Share Progress</button>
+      </div>
+    </div>
+
+    <div class="popup-section">
+      <h2>Settings</h2>
+      
+      <div class="setting-item">
+        <div class="setting-info">
+          <div class="setting-label">Enable LearnTube AI</div>
+          <div class="setting-description">Activate quiz generation on YouTube</div>
+        </div>
+        <label class="toggle">
+          <input type="checkbox" id="enabledToggle" checked>
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
+
+      <div class="setting-item">
+        <div class="setting-info">
+          <div class="setting-label">Auto Quiz</div>
+          <div class="setting-description">Automatically show quizzes during videos</div>
+        </div>
+        <label class="toggle">
+          <input type="checkbox" id="autoQuizToggle" checked>
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
+
+      <div class="setting-item">
+        <div class="setting-info">
+          <div class="setting-label">Final Quiz</div>
+          <div class="setting-description">Show comprehensive quiz at video end</div>
+        </div>
+        <label class="toggle">
+          <input type="checkbox" id="finalQuizToggle" checked>
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
+
+      <div class="setting-item">
+        <div class="setting-info">
+          <div class="setting-label">Questions per Segment</div>
+          <div class="setting-description">Number of questions in mid-video quizzes</div>
+        </div>
+        <select id="questionCount" class="setting-select">
+          <option value="1" selected>1 Question</option>
+          <option value="2">2 Questions</option>
+          <option value="3">3 Questions</option>
+        </select>
+      </div>
+
+      <div class="setting-item">
+        <div class="setting-info">
+          <div class="setting-label">Theme</div>
+          <div class="setting-description">Choose your preferred color theme</div>
+        </div>
+        <select id="themeSelect" class="setting-select">
+          <option value="dark" selected>Dark</option>
+          <option value="light">Light</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="popup-section">
+      <h2>About</h2>
+      <p class="about-text">
+        LearnTube AI uses Chrome's built-in AI to generate interactive quizzes 
+        while you watch educational videos. All processing happens locally for 
+        complete privacy.
+      </p>
+      <div class="about-features">
+        <div class="feature-badge">100% Private</div>
+        <div class="feature-badge">Powered by On Device AI</div>
+      </div>
+    </div>
+
+    <div class="popup-actions">
+      <button id="clearProgress" class="btn-test">
+        Clear History
+      </button>
+      <button id="viewDocs" class="btn-primary">
+        How it Works
+      </button>
+    </div>
+
+    <div class="popup-footer">
+      <p>Made with ❤️ for learners everywhere</p>
+    </div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
+
