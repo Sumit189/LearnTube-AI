@@ -1517,7 +1517,7 @@ async function monitorVideo() {
     }
 
     //when Enable LearnTube AI  is off or (Auto quiz or Final Quiz ) are off do not startTranscriptProcess
-    if (!userSettings.autoQuiz && !userSettings.finalQuiz) {
+    if (!userSettings.autoQuiz && !userSettings.finalQuizEnabled) {
       return;
     }
 
