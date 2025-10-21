@@ -496,33 +496,43 @@ async function generateQuiz(segment, desiredCount = 2) {
       return generateFallbackQuestions(segment, desiredCount);
     }
     const session = await LanguageModel.create({
-      temperature: 0.7,
-      topK: 40,
-      maxOutputTokens: 1000
+      temperature: 0.8,
+      topK: 50,
+      maxOutputTokens: 1200
     });
     const n = Math.max(1, Math.min(4, desiredCount));
-    const header = `You are generating high-quality multiple-choice questions strictly from the provided video content. Do not use outside knowledge.
+    const header = `You are an expert educator creating challenging multiple-choice questions that test deep understanding, not just memorization.
 
-Context:
-- Video segment start (s): ${Math.round(segment.start || 0)}
-- Video segment end (s): ${Math.round(segment.end || (segment.start || 0) + (segment.duration || 0))}
-- Video content:
+Video Content (${Math.round(segment.start || 0)}s - ${Math.round(segment.end || (segment.start || 0) + (segment.duration || 0))}s):
 """
 ${segment.text}
 """
 
-Task:
-- Write EXACTLY ${n} questions (Q1..Q${n}) with 4 options each (A–D).
-- Each question must test a distinct, non-trivial point from the video content.
-- Keep questions clear and specific; avoid trivia and vague wording.
-- Use the video's terminology; do not invent facts not present in the content.
-- Options should be concise, mutually exclusive, and plausible; avoid jokes and "All of the above/None of the above".
-- Balance option length so the correct one doesn't stand out.
-- Ensure exactly one correct answer per question.
+CRITICAL REQUIREMENTS:
+1. Test UNDERSTANDING, not recall - ask WHY, HOW, or WHAT IF questions
+2. Focus on concepts, relationships, implications, and applications
+3. Avoid simple fact retrieval ("What was mentioned?", "What is X?")
+4. Make learners THINK and CONNECT ideas from the content
 
-Difficulty/coverage:
-- At least one question should assess applied understanding or why/how (beyond recall).
-- Another can assess key definitions or contrasts from the video segment.
+Question Design Rules:
+- Write EXACTLY ${n} questions (Q1..Q${n}) with 4 options each (A–D)
+- Each question must test a DIFFERENT concept or relationship
+- Ask about: cause-effect, comparisons, applications, implications, reasoning, or problem-solving
+- Use stems like: "Why...", "How does...", "What would happen if...", "What is the relationship between...", "Which best explains..."
+- Require understanding of the underlying principle, not just word matching
+
+Distractor (Wrong Answer) Strategy:
+- Make ALL options plausible and related to the content
+- Include common misconceptions or partial understandings
+- Use details from the video in wrong answers too (don't make correct answer obvious)
+- Avoid obvious eliminations like "None of the above" or joke answers
+- Keep all options similar in length and style
+
+Quality Checks:
+- Can this be answered by truly understanding the content?
+- Would someone who just skimmed miss this?
+- Do wrong answers look believable to someone who half-understands?
+- Does it test application/analysis rather than memorization?
 
 Output format (STRICT):`;
     const makeBlock = (i) => `
