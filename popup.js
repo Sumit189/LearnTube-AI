@@ -7,6 +7,236 @@ let settings = {
   theme: 'dark'
 };
 
+const STATUS_LABELS = {
+  completed: 'Completed',
+  ready: 'Ready',
+  processing: 'Processing',
+  pending: 'Pending',
+  error: 'Failed',
+  skipped: 'Skipped',
+  idle: 'Idle'
+};
+
+function escapeHtml(value) {
+  if (value === null || value === undefined) return '';
+  return String(value).replace(/[&<>"']/g, (char) => {
+    switch (char) {
+      case '&': return '&amp;';
+      case '<': return '&lt;';
+      case '>': return '&gt;';
+      case '"': return '&quot;';
+      case "'": return '&#39;';
+      default: return char;
+    }
+  });
+}
+
+function classForStatus(rawStatus) {
+  const status = (rawStatus || '').toString().toLowerCase();
+  if (status === 'completed' || status === 'ready') return 'status-pill status-completed';
+  if (status === 'processing' || status === 'in-progress') return 'status-pill status-processing';
+  if (status === 'error' || status === 'failed') return 'status-pill status-error';
+  if (status === 'skipped') return 'status-pill status-skipped';
+  return 'status-pill status-pending';
+}
+
+function labelForStatus(rawStatus) {
+  const status = (rawStatus || '').toString().toLowerCase();
+  return STATUS_LABELS[status] || STATUS_LABELS.pending;
+}
+
+function formatRelativeTime(timestamp) {
+  if (!timestamp && timestamp !== 0) return 'Just now';
+  const tsNumber = Number(timestamp);
+  if (!Number.isFinite(tsNumber)) return 'Just now';
+  const diff = Date.now() - tsNumber;
+  if (diff < 60000) return 'Just now';
+  if (diff < 3600000) {
+    const minutes = Math.round(diff / 60000);
+    return `${minutes} min${minutes === 1 ? '' : 's'} ago`;
+  }
+  if (diff < 86400000) {
+    const hours = Math.round(diff / 3600000);
+    return `${hours} hour${hours === 1 ? '' : 's'} ago`;
+  }
+  const date = new Date(tsNumber);
+  return Number.isFinite(date.getTime())
+    ? date.toLocaleDateString([], { month: 'short', day: 'numeric' })
+    : 'Earlier';
+}
+
+function renderCurrentStatus(status) {
+  const videoTitle = escapeHtml(status?.videoTitle || 'Current video');
+  const overallStatus = status?.overallStatus || (status?.final?.status === 'error' ? 'error' : 'processing');
+  const overallBadge = `<span class="${classForStatus(overallStatus)}">${labelForStatus(overallStatus)}</span>`;
+
+  const segments = Array.isArray(status?.segments) ? status.segments : [];
+  let completed = 0;
+  let processing = 0;
+  let pending = 0;
+  let errors = 0;
+  const errorMessages = [];
+
+  segments.forEach(segment => {
+    const segStatus = (segment?.status || '').toLowerCase();
+    if (segStatus === 'completed' || segStatus === 'ready') {
+      completed += 1;
+    } else if (segStatus === 'processing') {
+      processing += 1;
+    } else if (segStatus === 'error') {
+      errors += 1;
+      if (segment?.message) {
+        const index = typeof segment.index === 'number' ? segment.index + 1 : '?';
+        errorMessages.push(`Segment ${index}: ${segment.message}`);
+      }
+    } else {
+      pending += 1;
+    }
+  });
+
+  const metrics = [
+    { label: 'Total segments', value: segments.length },
+    { label: 'Completed', value: completed },
+    { label: 'Processing', value: processing },
+    { label: 'Pending', value: pending }
+  ];
+  if (errors > 0) {
+    metrics.push({ label: 'Failed', value: errors });
+  }
+
+  const totalSegments = segments.length;
+  const progressPercent = totalSegments ? Math.round((completed / totalSegments) * 100) : 0;
+  const progressLabel = totalSegments
+    ? `${completed}/${totalSegments} segments ready`
+    : 'Waiting for first quiz';
+
+  const metricsMarkup = totalSegments
+    ? `<div class="status-metrics">${metrics.map(metric => `
+        <div class="status-metric">
+          <div class="status-metric-label">${escapeHtml(metric.label)}</div>
+          <div class="status-metric-value">${escapeHtml(String(metric.value))}</div>
+        </div>
+      `).join('')}</div>`
+    : '';
+
+  const progressMarkup = totalSegments
+    ? `
+      <div class="status-progress">
+        <div class="status-progress-label">
+          <span>Segment progress</span>
+          <span>${progressPercent}%</span>
+        </div>
+        <div class="status-progress-bar">
+          <div class="status-progress-fill" style="width:${progressPercent}%"></div>
+        </div>
+        <div class="status-progress-helper">${escapeHtml(progressLabel)}</div>
+      </div>
+    `.trim()
+    : `
+      <div class="status-progress waiting">
+        <div class="status-progress-label">
+          <span>Segment progress</span>
+          <span>—</span>
+        </div>
+        <div class="status-progress-helper">${escapeHtml(progressLabel)}</div>
+      </div>
+    `.trim();
+
+  const finalStatusObj = status?.final || {};
+  const finalStatus = (finalStatusObj.status || 'skipped').toLowerCase();
+  const finalBadge = `<span class="${classForStatus(finalStatus)}">${labelForStatus(finalStatus)}</span>`;
+  if (finalStatusObj.message && finalStatus === 'error') {
+    errorMessages.push(`Final quiz: ${finalStatusObj.message}`);
+  }
+  const finalNote = (() => {
+    switch (finalStatus) {
+      case 'completed':
+        return 'Ready';
+      case 'processing':
+        return 'Generating…';
+      case 'pending':
+        return 'Waiting to start';
+      case 'error':
+        return 'Needs attention';
+      case 'skipped':
+        return 'Disabled';
+      default:
+        return '';
+    }
+  })();
+
+  const finalNoteStatus = ['completed', 'processing', 'pending', 'error', 'skipped'].includes(finalStatus)
+    ? finalStatus
+    : 'pending';
+  const finalNoteText = finalNote || 'Status unknown';
+  const finalContainerClass = `status-final status-final-${finalNoteStatus}`;
+  const finalNoteClass = `status-final-note status-final-note-${finalNoteStatus}`;
+  const finalLine = `
+    <div class="${finalContainerClass}">
+      <div class="status-final-info">
+        <div class="status-final-label">Final quiz</div>
+        <div class="${finalNoteClass}">${escapeHtml(finalNoteText)}</div>
+      </div>
+      <div class="status-final-badge">${finalBadge}</div>
+    </div>
+  `.trim();
+
+  const updatedLabel = escapeHtml(`Updated ${formatRelativeTime(status?.updatedAt)}`);
+  const errorBlock = errorMessages.length
+    ? `<div class="status-errors"><div>Needs attention:</div><ul>${errorMessages.map(msg => `<li>${escapeHtml(msg)}</li>`).join('')}</ul></div>`
+    : '';
+
+  return `
+    <div class="status-block">
+      <div class="status-header">
+        <div class="status-title">${videoTitle}</div>
+      </div>
+      <div class="status-badge-row">${overallBadge}</div>
+      ${progressMarkup}
+      ${metricsMarkup}
+      ${finalLine}
+      <div class="status-updated">${updatedLabel}</div>
+      ${errorBlock}
+    </div>
+  `.trim();
+}
+
+async function loadGenerationStatus() {
+  const container = document.getElementById('statusContent');
+  if (!container) return;
+
+  container.innerHTML = '<div class="status-placeholder">Checking current video...</div>';
+
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (!tab?.url || !tab.url.includes('youtube.com/watch')) {
+      container.innerHTML = '<div class="status-placeholder">Open a YouTube video to see quiz generation progress.</div>';
+      return;
+    }
+
+    let videoId = null;
+    try {
+      const url = new URL(tab.url);
+      videoId = url.searchParams.get('v');
+    } catch (err) {
+      console.warn('LearnTube: Could not parse video ID from URL', err);
+    }
+
+    const statusMap = await chrome.runtime.sendMessage({ type: 'GET_GENERATION_STATUS' }) || {};
+    const currentStatus = videoId ? statusMap[videoId] : null;
+
+    if (!currentStatus) {
+      container.innerHTML = '<div class="status-placeholder">No quiz activity recorded for this video yet.</div>';
+      return;
+    }
+
+    container.innerHTML = renderCurrentStatus(currentStatus);
+  } catch (error) {
+    console.error('Error loading generation status:', error);
+    container.innerHTML = '<div class="status-placeholder status-error">Unable to load quiz status.</div>';
+  }
+}
+
 async function loadSettings() {
   try {
     const response = await chrome.runtime.sendMessage({ type: 'GET_SETTINGS' });
@@ -186,9 +416,11 @@ document.getElementById('clearCache').addEventListener('click', async () => {
     };
     chrome.tabs.onUpdated.addListener(onUpdated);
 
-    // Reload the current YouTube tab to regenerate quizzes
-    await chrome.tabs.reload(targetTabId);
-    
+    // Reload the current YouTube tab to regenerate quizzes after 1 seconds
+    setTimeout(() => {
+      chrome.tabs.reload(targetTabId);
+    }, 1000);
+
   } catch (error) {
     console.error('Error clearing cache:', error);
     alert('Error: Could not clear cache. Make sure you are on a YouTube video page.');
@@ -540,11 +772,15 @@ document.querySelectorAll('#shareScope .seg-btn').forEach(btn => {
 loadSettings();
 loadProgress();
 checkModelStatus();
+loadGenerationStatus();
 
 // Listen for storage changes and update progress in real-time
 chrome.storage.onChanged.addListener((changes, areaName) => {
   if (areaName === 'local' && changes.learntube_progress) {
     calculateStats(changes.learntube_progress.newValue || {});
+  }
+  if (areaName === 'local' && changes.learntube_generation_status) {
+    loadGenerationStatus();
   }
 });
 
@@ -580,5 +816,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
   
   return true;
+});
+
+chrome.tabs.onActivated.addListener(() => {
+  loadGenerationStatus();
+});
+
+chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+  if (tab?.active && changeInfo?.status === 'complete') {
+    loadGenerationStatus();
+  }
 });
 

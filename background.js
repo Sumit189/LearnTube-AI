@@ -17,6 +17,13 @@ chrome.runtime.onInstalled.addListener(async () => {
 });
 
 
+const CACHE_PREFIXES = {
+  QUIZ: 'learntube_quiz_',
+  TRANSCRIPT: 'learntube_transcript_',
+  LRU: 'learntube_cache_lru',
+  STATUS: 'learntube_generation_status'
+};
+
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message.action === 'test') {
     sendResponse({ status: 'Background script is working!' });
@@ -51,28 +58,39 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return true;
   }
   
+  if (message.type === 'GET_GENERATION_STATUS') {
+    chrome.storage.local.get(CACHE_PREFIXES.STATUS).then(data => {
+      sendResponse(data[CACHE_PREFIXES.STATUS] || {});
+    }).catch(error => {
+      console.error('LearnTube: Error retrieving generation status:', error);
+      sendResponse({});
+    });
+    return true;
+  }
+
   if (message.type === 'CLEAR_ALL_CACHE') {
-    chrome.tabs.query({ url: '*://*.youtube.com/*' }).then(tabs => {
-      const promises = tabs.map(tab => {
-        return chrome.scripting.executeScript({
-          target: { tabId: tab.id },
-          func: () => {
-            const keysToRemove = [];
-            for (let i = 0; i < localStorage.length; i++) {
-              const key = localStorage.key(i);
-              if (key.startsWith('learntube_quiz_') || key.startsWith('learntube_transcript_')) {
-                keysToRemove.push(key);
-              }
-            }
-            keysToRemove.forEach(key => localStorage.removeItem(key));
-            console.log(`LearnTube: Cleared ${keysToRemove.length} cache items`);
-          }
-        }).catch(() => {});
-      });
-      
-      Promise.all(promises).then(() => {
+    chrome.storage.local.get(null).then(items => {
+      const keysToRemove = Object.keys(items).filter(key =>
+        key.startsWith(CACHE_PREFIXES.QUIZ) ||
+        key.startsWith(CACHE_PREFIXES.TRANSCRIPT) ||
+        key === CACHE_PREFIXES.LRU ||
+        key === CACHE_PREFIXES.STATUS
+      );
+
+      if (keysToRemove.length === 0) {
         sendResponse({ success: true });
+        return;
+      }
+
+      chrome.storage.local.remove(keysToRemove).then(() => {
+        sendResponse({ success: true, removed: keysToRemove.length });
+      }).catch(error => {
+        console.error('LearnTube: Error clearing all cache:', error);
+        sendResponse({ success: false, error: error.message });
       });
+    }).catch(error => {
+      console.error('LearnTube: Error reading cache before clear:', error);
+      sendResponse({ success: false, error: error.message });
     });
     return true;
   }
