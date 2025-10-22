@@ -1021,6 +1021,21 @@ body[data-theme="light"] .collapsible-icon::before {
   transform: translateY(0);
 }
 
+#clearProgress {
+  background: #dc2626;
+  border: none;
+}
+
+#clearProgress:hover {
+  background: #b91c1c;
+  transform: translateY(-1px);
+}
+
+#clearProgress:active {
+  background: #991b1b;
+  transform: translateY(0);
+}
+
 .popup-footer {
   padding: 16px 24px;
   text-align: center;

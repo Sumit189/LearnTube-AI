@@ -406,7 +406,7 @@ document.getElementById('clearProgress').addEventListener('click', async () => {
       
       const btn = document.getElementById('clearProgress');
       const originalText = btn.innerHTML;
-      btn.innerHTML = '✓ Cleared';
+      btn.innerHTML = '✓ Progress Cleared';
       btn.disabled = true;
       
       setTimeout(() => {
@@ -417,12 +417,6 @@ document.getElementById('clearProgress').addEventListener('click', async () => {
       console.error('Error clearing progress:', error);
     }
   }
-});
-
-document.getElementById('viewDocs').addEventListener('click', () => {
-  chrome.tabs.create({ 
-    url: 'https://developer.chrome.com/docs/ai/built-in-apis' 
-  });
 });
 
 document.getElementById('clearCache').addEventListener('click', async () => {
