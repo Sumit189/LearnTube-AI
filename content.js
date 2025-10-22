@@ -2442,6 +2442,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           monitorCleanup();
           monitorCleanup = null;
         }
+        // Clear current video's generation status when disabled
+        if (videoId && generationStatus) {
+          generationStatus = null;
+          await persistGenerationStatus();
+        }
       } else {
         const currentVideoId = extractVideoId();
         if (currentVideoId && !videoElement) {
@@ -2509,7 +2514,7 @@ async function downloadModel(modelType) {
     if (modelType === 'languageModel') {
       if (typeof LanguageModel !== 'undefined') {
         // Trigger model download by creating a session with progress monitor
-        const session = await LanguageModel.create({
+        LanguageModel.create({
           temperature: 0.7,
           topK: 40,
           monitor(m) {
@@ -2526,12 +2531,6 @@ async function downloadModel(modelType) {
             });
           }
         });
-
-        // Destroy the session after triggering download
-        if (session && typeof session.destroy === 'function') {
-          session.destroy();
-        }
-
         console.log('LearnTube: Language Model download initiated');
         return { success: true, message: 'Download initiated' };
       } else {
@@ -2540,7 +2539,7 @@ async function downloadModel(modelType) {
     } else if (modelType === 'summarizer') {
       if (typeof Summarizer !== 'undefined') {
         // Trigger model download by creating a summarizer with progress monitor
-        const summarizer = await Summarizer.create({
+        Summarizer.create({
           type: 'key-points',
           format: 'plain-text',
           length: 'medium',
@@ -2560,12 +2559,6 @@ async function downloadModel(modelType) {
             });
           }
         });
-
-        // Destroy the summarizer after triggering download
-        if (summarizer && typeof summarizer.destroy === 'function') {
-          summarizer.destroy();
-        }
-
         console.log('LearnTube: Summarizer download initiated');
         return { success: true, message: 'Download initiated' };
       } else {
@@ -2593,33 +2586,8 @@ async function autoInitializeModels() {
       console.log('LearnTube: LanguageModel availability:', lmAvailability);
 
       if (lmAvailability === 'downloadable' || lmAvailability === 'available') {
-        try {
-          const session = await LanguageModel.create({
-            temperature: 0.7,
-            topK: 40,
-            monitor(m) {
-              m.addEventListener('downloadprogress', (e) => {
-                const percentage = Math.round(e.loaded * 100);
-                console.log(`LearnTube: Language Model auto-init downloaded ${percentage}%`);
-
-                // Send progress update to popup
-                chrome.runtime.sendMessage({
-                  type: 'MODEL_DOWNLOAD_PROGRESS',
-                  modelType: 'languageModel',
-                  progress: percentage
-                }).catch(() => { });
-              });
-            }
-          });
-
-          if (session && typeof session.destroy === 'function') {
-            session.destroy();
-          }
-
-          console.log('LearnTube: LanguageModel initialized successfully');
-        } catch (err) {
-          console.log('LearnTube: LanguageModel initialization in progress or failed:', err.message);
-        }
+        modelsInitialized = false;
+        return;
       }
     }
 
@@ -2629,36 +2597,8 @@ async function autoInitializeModels() {
       console.log('LearnTube: Summarizer availability:', smAvailability);
 
       if (smAvailability === 'downloadable' || smAvailability === 'available') {
-        try {
-          const summarizer = await Summarizer.create({
-            type: 'key-points',
-            format: 'plain-text',
-            length: 'medium',
-            sharedContext: 'This is educational video content.',
-            outputLanguage: 'en',
-            monitor(m) {
-              m.addEventListener('downloadprogress', (e) => {
-                const percentage = Math.round(e.loaded * 100);
-                console.log(`LearnTube: Summarizer auto-init downloaded ${percentage}%`);
-
-                // Send progress update to popup
-                chrome.runtime.sendMessage({
-                  type: 'MODEL_DOWNLOAD_PROGRESS',
-                  modelType: 'summarizer',
-                  progress: percentage
-                }).catch(() => { });
-              });
-            }
-          });
-
-          if (summarizer && typeof summarizer.destroy === 'function') {
-            summarizer.destroy();
-          }
-
-          console.log('LearnTube: Summarizer initialized successfully');
-        } catch (err) {
-          console.log('LearnTube: Summarizer initialization in progress or failed:', err.message);
-        }
+        modelsInitialized = false;
+        return;
       }
     }
 
@@ -2690,7 +2630,6 @@ const observer = new MutationObserver(() => {
   if (window.location.href !== currentUrl) {
     const newVideoId = extractVideoId();
     if (newVideoId && newVideoId !== videoId) {
-      console.log('LearnTube: Video changed from', videoId, 'to', newVideoId);
       currentUrl = window.location.href;
 
       // Reset all state variables
@@ -2714,6 +2653,9 @@ const observer = new MutationObserver(() => {
       finalQuizGenerating = false;
       transcriptProcessStarted = false;
       generationStatus = null;
+
+      // Notify popup to refresh status
+      chrome.runtime.sendMessage({ type: 'VIDEO_CHANGED' });
 
       // Clear UI elements
       clearSeekbarIndicators();

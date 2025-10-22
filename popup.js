@@ -840,6 +840,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (progress < 100) {
       updateModelStatus(statusElement, 'checking', `Downloading ${progress}%...`, false);
     }
+  } else if (message.type === 'VIDEO_CHANGED') {
+    // Refresh generation status when video changes
+    loadGenerationStatus();
   }
   
   return true;
