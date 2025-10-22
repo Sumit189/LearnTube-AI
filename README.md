@@ -30,8 +30,9 @@ The extension consists of three main components working together:
 **Popup UI** (`popup.html`, `popup.js`)
 - Provides controls for enabling/disabling features
 - Shows model status and allows downloading AI models if not available
-- Displays user statistics (videos watched, quizzes taken, average score)
-- Allows clearing cache to regenerate quizzes for a video
+- Displays user statistics (videos watched, quizzes taken, average score) and lets you share progress for the current video or overall history
+- Offers cache management tools to refresh quizzes for the current video or wipe all cached data
+- Includes theme selection and other preferences that sync with the in-video experience
 
 ### Key Implementation Details
 
@@ -122,16 +123,19 @@ Since this extension uses Chrome's built-in AI APIs, you need a recent version o
 
 **Extension not loading**: Make sure you're using a recent version of Chrome and have enabled the required flags in `chrome://flags`. Restart Chrome after enabling the flags.
 
-## Configuration
+## Popup Controls & Configuration
 
 Open the extension popup (click the icon) to access settings:
 
-- **Enable/Disable Extension**: Master toggle for all functionality
+- **Enable LearnTube AI**: Master toggle for all in-video quiz features
 - **Auto Quiz**: Whether quizzes appear automatically during playback
 - **Final Quiz**: Whether to show the comprehensive end-of-video quiz
-- **Question Count**: Number of questions per mid-video quiz (1-2)
-- **Clear Progress**: Reset all quiz history and statistics
-- **Clear Cache**: Force regenerate quizzes for the current video
+- **Questions per Segment**: Choose how many questions each mid-video quiz contains (1-3)
+- **Theme**: Switch between dark and light popup themes to match your preference
+- **Clear This Video**: Remove cached quizzes for the currently open video so they regenerate on reload
+- **Clear All Cache**: Wipe cached quizzes and transcripts for every video if you want a clean slate
+- **Clear Progress**: Reset aggregated quiz history and statistics displayed in the popup
+- **Share Progress**: Copy a shareable summary of your current-video or overall quiz performance to the clipboard
 
 ## Privacy
 
