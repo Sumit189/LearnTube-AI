@@ -14,6 +14,9 @@ let userSettings = { questionCount: 1, autoQuiz: true, finalQuizEnabled: true, e
 let finalQuizQuestions = null;
 let finalQuizGenerating = false;
 let transcriptProcessStarted = false;
+let monitorCleanup = null;
+let modelsInitialized = false;
+let modelsInitializing = false;
 
 const CACHE_CONFIG = {
   LIMIT: 10,
@@ -814,6 +817,7 @@ function updateSeekbarIndicator(segmentIndex) {
 }
 
 async function summarizeTranscript(fullText) {
+  let summarizer = null;
   try {
     if (typeof Summarizer === 'undefined') {
       console.log('LearnTube: Summarizer API not available, using full text');
@@ -826,7 +830,7 @@ async function summarizeTranscript(fullText) {
       return null;
     }
 
-    const summarizer = await Summarizer.create({
+    summarizer = await Summarizer.create({
       type: 'key-points',
       format: 'plain-text',
       length: 'medium',
@@ -841,10 +845,21 @@ async function summarizeTranscript(fullText) {
   } catch (error) {
     console.error('LearnTube: Error summarizing transcript:', error);
     return null;
+  } finally {
+    if (summarizer && typeof summarizer.destroy === 'function') {
+      try {
+        summarizer.destroy();
+      } catch (destroyError) {
+        console.warn('LearnTube: Failed to dispose summarizer session:', destroyError);
+      }
+    }
   }
 }
 
 async function generateQuiz(segment, desiredCount = 2) {
+  if (!segment || typeof segment.text !== 'string' || !segment.text.trim()) {
+    throw new Error('Segment content unavailable for quiz generation');
+  }
   if (typeof LanguageModel === 'undefined') {
     throw new Error('Language Model API unavailable');
   }
@@ -853,14 +868,15 @@ async function generateQuiz(segment, desiredCount = 2) {
     throw new Error(`Language Model not ready (${availability})`);
   }
 
+  let session = null;
   try {
-    const session = await LanguageModel.create({
+    session = await LanguageModel.create({
       temperature: 0.8,
       topK: 50,
       maxOutputTokens: 1200
     });
     const n = Math.max(1, Math.min(4, desiredCount));
-  const header = `You are an expert educator creating engaging multiple-choice questions that check solid understanding without being overly tricky.
+    const header = `You are an expert educator creating engaging multiple-choice questions that check solid understanding without being overly tricky.
 
 Video Content (${Math.round(segment.start || 0)}s - ${Math.round(segment.end || (segment.start || 0) + (segment.duration || 0))}s):
 """
@@ -922,6 +938,14 @@ Correct: [A|B|C|D]`;
     return questions;
   } catch (error) {
     throw error;
+  } finally {
+    if (session && typeof session.destroy === 'function') {
+      try {
+        session.destroy();
+      } catch (destroyError) {
+        console.warn('LearnTube: Failed to dispose language model session:', destroyError);
+      }
+    }
   }
 }
 
@@ -958,19 +982,23 @@ function parseQuizResponse(response, desiredCount = 1) {
       let correct = -1;
       for (let i = 1; i < lines.length; i++) {
         const line = lines[i].trim();
-        if (line.match(/^[A-D]\)/)) {
-          options.push(line.substring(3).trim());
-        } else if (line.startsWith('Correct:')) {
-          const correctLetter = line.split(':')[1].trim();
-          correct = correctLetter.charCodeAt(0) - 65;
+        if (/^[A-D]\)/i.test(line)) {
+          const optionText = line.replace(/^[A-D]\)\s*/, '').trim();
+          options.push(optionText);
+        } else if (/^Correct:/i.test(line)) {
+          const match = line.match(/Correct:\s*([A-D])/i);
+          if (match && match[1]) {
+            correct = match[1].toUpperCase().charCodeAt(0) - 65;
+          }
         }
       }
-      if (question && options.length >= 2 && correct >= 0) {
+      const hasValidCorrect = correct >= 0 && correct < options.length;
+      if (question && options.length >= 2 && hasValidCorrect) {
         questions.push({ question, options, correct });
       }
     }
-    if (questions.length >= desiredCount) {
-      return questions;
+    if (desiredCount > 0 && questions.length >= desiredCount) {
+      return questions.slice(0, desiredCount);
     }
     return questions;
   } catch (error) {
@@ -1495,94 +1523,112 @@ function removeOverlay() {
 
 async function monitorVideo() {
   if (!videoElement) return;
+
+  if (typeof monitorCleanup === 'function') {
+    monitorCleanup();
+    monitorCleanup = null;
+  }
+
   if (monitorAttached) return;
 
   monitorAttached = true;
 
-  let transcriptFetched = false;
-  let lastCheckTime = 0; // Track last check to avoid duplicate triggers
+  let transcriptFetchPromise = null;
+  let lastCheckTime = 0;
+
+  const startTranscriptIfReady = (currentTime, videoDuration) => {
+    if (transcriptFetchPromise || transcriptProcessStarted) {
+      return false;
+    }
+    if (!videoDuration || Number.isNaN(videoDuration) || !Number.isFinite(videoDuration)) {
+      return false;
+    }
+    const startThreshold = videoDuration * 0.03;
+    if (currentTime >= startThreshold) {
+      transcriptFetchPromise = startTranscriptProcess().then(success => {
+        if (!success) {
+          transcriptFetchPromise = null;
+        }
+        return success;
+      }).catch(error => {
+        console.error('LearnTube: Transcript process error:', error);
+        transcriptFetchPromise = null;
+      });
+      return true;
+    }
+    return false;
+  };
 
   const checkProgress = () => {
     if (!videoElement) {
       return;
     }
+
+    const currentTime = Number.isFinite(videoElement.currentTime) ? videoElement.currentTime : 0;
+    const videoDuration = Number.isFinite(videoElement.duration) ? videoElement.duration : 0;
+
     if (quizActive) {
-      lastCheckTime = videoElement.currentTime;
+      lastCheckTime = currentTime;
       return;
     }
 
-    // If extension is disabled, don't do anything
     if (!userSettings.enabled) {
       return;
     }
 
-    //when Enable LearnTube AI  is off or (Auto quiz or Final Quiz ) are off do not startTranscriptProcess
     if (!userSettings.autoQuiz && !userSettings.finalQuizEnabled) {
       return;
     }
 
-    const currentTime = videoElement.currentTime;
-    const videoDuration = videoElement.duration;
-
-    // Start transcript fetching after 3% of video watched (or immediately if already past that)
-    if (!transcriptFetched && videoDuration > 0) {
-      const startThreshold = videoDuration * 0.03; // 3% of video
-      if (currentTime >= startThreshold) {
-        transcriptFetched = true;
-        startTranscriptProcess();
-      }
+    if (startTranscriptIfReady(currentTime, videoDuration)) {
+      lastCheckTime = currentTime;
       return;
     }
 
-    // If transcript not fetched yet, don't check for segments
-    if (!transcriptFetched || !videoSegments || videoSegments.length === 0) {
+    if (!Array.isArray(videoSegments) || videoSegments.length === 0) {
+      lastCheckTime = currentTime;
       return;
     }
 
-    // If autoQuiz is disabled, don't automatically trigger quizzes
     if (!userSettings.autoQuiz) {
+      lastCheckTime = currentTime;
+      return;
+    }
+
+    if (!videoDuration) {
+      lastCheckTime = currentTime;
       return;
     }
 
     const skipThreshold = videoDuration * 0.03;
     if (currentTime < skipThreshold) {
+      lastCheckTime = currentTime;
       return;
     }
 
-    // Check ALL segments to find the one whose END we just reached
-    // This handles seeking/skipping properly
     for (let i = 0; i < videoSegments.length; i++) {
       const segment = videoSegments[i];
       if (!segment || typeof segment.end !== 'number') continue;
 
-      // Check if we've crossed this segment's END time (3s window)
       const isAtSegmentEnd = currentTime >= segment.end && currentTime < (segment.end + 3);
-
-      // Detect if user is seeking (time jumped more than 3 seconds)
       const timeDiff = Math.abs(currentTime - lastCheckTime);
       const isBigSeek = timeDiff > 3 && lastCheckTime > 0;
 
-      // If big seek, reset shown segments that we skipped over
-      if (isBigSeek) {
-        if (currentTime < lastCheckTime) {
-          for (let j = 0; j < videoSegments.length; j++) {
-            if (videoSegments[j].start > currentTime) {
-              shownSegmentsSet.delete(j);
-            }
+      if (isBigSeek && currentTime < lastCheckTime) {
+        for (let j = 0; j < videoSegments.length; j++) {
+          if (videoSegments[j].start > currentTime) {
+            shownSegmentsSet.delete(j);
           }
         }
       }
 
-      // Show quiz if at the segment END and not shown yet
       if (isAtSegmentEnd && !shownSegmentsSet.has(i)) {
         console.log(`LearnTube: Auto-triggering quiz for segment ${i + 1} at time ${currentTime.toFixed(1)}s (segment end: ${segment.end.toFixed(1)}s)`);
 
-        // Mark as shown before pausing to avoid race conditions
         shownSegmentsSet.add(i);
 
         videoElement.pause();
 
-        // Use pre-generated quiz
         if (segment.questions && segment.questions.length > 0) {
           showQuiz(segment.questions, i);
         } else {
@@ -1597,16 +1643,13 @@ async function monitorVideo() {
           });
         }
 
-        break; // Only show one quiz at a time
+        break;
       }
     }
 
     lastCheckTime = currentTime;
   };
 
-  videoElement.addEventListener('timeupdate', checkProgress);
-
-  // Trigger final quiz before video end
   const triggerFinalIfDue = () => {
     if (!videoElement) return;
     if (!userSettings.enabled) return;
@@ -1614,8 +1657,8 @@ async function monitorVideo() {
     if (!userSettings.autoQuiz) return;
     if (finalQuizShown) return;
     if (!Array.isArray(videoSegments) || videoSegments.length === 0) return;
-    const duration = videoElement.duration || 0;
-    if (!duration || isNaN(duration)) return;
+  const duration = Number.isFinite(videoElement.duration) ? videoElement.duration : 0;
+  if (!duration) return;
     const triggerTime = duration * (CONFIG.FINAL_QUIZ_TRIGGER_PERCENTAGE || 0.92);
     if (videoElement.currentTime >= triggerTime) {
       finalQuizShown = true;
@@ -1628,15 +1671,13 @@ async function monitorVideo() {
       }, 500);
     }
   };
-  videoElement.addEventListener('timeupdate', triggerFinalIfDue);
 
-  videoElement.addEventListener('ended', async () => {
-    if (!userSettings.enabled) return; // Check if extension is enabled
-    if (!userSettings.finalQuizEnabled) return; // Check if final quiz is enabled
+  const endedHandler = async () => {
+    if (!userSettings.enabled) return;
+    if (!userSettings.finalQuizEnabled) return;
 
     if (!finalQuizShown && videoSegments.length > 0) {
       finalQuizShown = true;
-      // Only auto-show final quiz if autoQuiz is enabled
       if (userSettings.autoQuiz) {
         setTimeout(async () => {
           try {
@@ -1646,84 +1687,96 @@ async function monitorVideo() {
           }
         }, 1000);
       }
-    } else {
-      if (finalQuizShown) {
-      } else if (videoSegments.length === 0) {
-      }
     }
-  });
+  };
+
+  videoElement.addEventListener('timeupdate', checkProgress);
+  videoElement.addEventListener('timeupdate', triggerFinalIfDue);
+  videoElement.addEventListener('ended', endedHandler);
+
+  monitorCleanup = () => {
+    videoElement.removeEventListener('timeupdate', checkProgress);
+    videoElement.removeEventListener('timeupdate', triggerFinalIfDue);
+    videoElement.removeEventListener('ended', endedHandler);
+    monitorAttached = false;
+  };
 }
 
 // Start the transcript fetching and quiz generation process
 async function startTranscriptProcess() {
   if (transcriptProcessStarted) {
     console.log('LearnTube: Transcript process already started, skipping duplicate call');
-    return;
+    return false;
   }
   transcriptProcessStarted = true;
 
-  const currentVideoId = extractVideoId();
-  await loadUserSettings();
+  let success = false;
 
-  // Try to load cached quizzes first
-  const cachedData = await getCachedQuizzes(currentVideoId);
-  if (cachedData?.segments?.length) {
-    console.log('LearnTube: Cache hit - loaded', cachedData.segments.length, 'segments');
-
-    videoSegments = cachedData.segments;
-    finalQuizQuestions = cachedData.finalQuiz || null;
-
-    if (finalQuizQuestions?.length) {
-      console.log(`LearnTube: Final quiz also loaded from cache (${finalQuizQuestions.length} questions)`);
-    } else {
-      console.log('LearnTube: Final quiz not found in cache');
+  try {
+    const currentVideoId = extractVideoId();
+    if (!currentVideoId) {
+      return false;
     }
 
-    videoSegments.forEach((segment, index) => {
-      segment.status = segment.status || (segment.questions?.length ? 'completed' : 'pending');
-      segment.errorMessage = segment.errorMessage || '';
-      if (segment.questions?.length) {
-        console.log(`LearnTube: Segment ${index + 1} loaded with ${segment.questions.length} cached question(s)`);
+    await loadUserSettings();
+
+    const cachedData = await getCachedQuizzes(currentVideoId);
+    if (cachedData?.segments?.length) {
+      console.log('LearnTube: Cache hit - loaded', cachedData.segments.length, 'segments');
+
+      videoSegments = cachedData.segments;
+      finalQuizQuestions = cachedData.finalQuiz || null;
+
+      if (finalQuizQuestions?.length) {
+        console.log(`LearnTube: Final quiz also loaded from cache (${finalQuizQuestions.length} questions)`);
+      } else {
+        console.log('LearnTube: Final quiz not found in cache');
       }
-    });
 
-    await loadGenerationStatusFromStorage(currentVideoId);
-    if (!generationStatus && cachedData.statusSnapshot) {
-      generationStatus = {
-        ...cachedData.statusSnapshot,
-        videoId: currentVideoId,
-        videoTitle: getCurrentVideoTitle()
-      };
-    }
-    if (!generationStatus) {
-      generationStatus = createInitialGenerationStatus(videoSegments.length);
-    }
+      videoSegments.forEach((segment, index) => {
+        segment.status = segment.status || (segment.questions?.length ? 'completed' : 'pending');
+        segment.errorMessage = segment.errorMessage || '';
+        if (segment.questions?.length) {
+          console.log(`LearnTube: Segment ${index + 1} loaded with ${segment.questions.length} cached question(s)`);
+        }
+      });
 
-    generationStatus.videoId = currentVideoId;
-    generationStatus.videoTitle = getCurrentVideoTitle();
-    generationStatus.segments = videoSegments.map((segment, index) => {
-      const status = segment.status || (segment.questions?.length ? 'completed' : 'pending');
-      const questionCount = segment.questions?.length || 0;
-      return {
-        index,
-        status,
-        questionCount,
-        target: userSettings.questionCount || 1,
-        message: segment.errorMessage || ''
-      };
-    });
+      await loadGenerationStatusFromStorage(currentVideoId);
+      if (!generationStatus && cachedData.statusSnapshot) {
+        generationStatus = {
+          ...cachedData.statusSnapshot,
+          videoId: currentVideoId,
+          videoTitle: getCurrentVideoTitle()
+        };
+      }
+      if (!generationStatus) {
+        generationStatus = createInitialGenerationStatus(videoSegments.length);
+      }
 
-    if (!generationStatus.final) {
-      generationStatus.final = {
-        status: userSettings.finalQuizEnabled
-          ? (finalQuizQuestions?.length ? 'completed' : 'pending')
-          : 'skipped',
-        questionCount: finalQuizQuestions?.length || 0,
-        target: CONFIG.FINAL_QUIZ_QUESTIONS_MIN,
-        message: ''
-      };
-    } else {
-      if (!userSettings.finalQuizEnabled) {
+      generationStatus.videoId = currentVideoId;
+      generationStatus.videoTitle = getCurrentVideoTitle();
+      generationStatus.segments = videoSegments.map((segment, index) => {
+        const status = segment.status || (segment.questions?.length ? 'completed' : 'pending');
+        const questionCount = segment.questions?.length || 0;
+        return {
+          index,
+          status,
+          questionCount,
+          target: userSettings.questionCount || 1,
+          message: segment.errorMessage || ''
+        };
+      });
+
+      if (!generationStatus.final) {
+        generationStatus.final = {
+          status: userSettings.finalQuizEnabled
+            ? (finalQuizQuestions?.length ? 'completed' : 'pending')
+            : 'skipped',
+          questionCount: finalQuizQuestions?.length || 0,
+          target: CONFIG.FINAL_QUIZ_QUESTIONS_MIN,
+          message: ''
+        };
+      } else if (!userSettings.finalQuizEnabled) {
         generationStatus.final.status = 'skipped';
         generationStatus.final.questionCount = 0;
         generationStatus.final.message = '';
@@ -1732,67 +1785,82 @@ async function startTranscriptProcess() {
         generationStatus.final.questionCount = finalQuizQuestions.length;
         generationStatus.final.message = '';
       }
+
+      await persistGenerationStatus();
+
+      const missingIndices = [];
+      let hasAnyQuestions = false;
+
+      videoSegments.forEach((segment, index) => {
+        if (!segment.questions?.length) {
+          missingIndices.push(index);
+        } else {
+          hasAnyQuestions = true;
+        }
+      });
+
+      indicatorsAllowed = true;
+      addQuizIndicatorsToSeekbar();
+
+      if (missingIndices.length) {
+        console.log(`LearnTube: ${missingIndices.length} segments missing questions, generating in parallel`);
+        const batchSize = 3;
+        for (let i = 0; i < missingIndices.length; i += batchSize) {
+          const batch = missingIndices.slice(i, i + batchSize).map(index => handleSegmentGeneration(videoSegments[index], index));
+          await Promise.all(batch);
+          if (i + batchSize < missingIndices.length) {
+            await new Promise(r => setTimeout(r, 200));
+          }
+        }
+        await persistGenerationStatus();
+        await cacheAllQuizzes(currentVideoId, videoSegments);
+        console.log('LearnTube: All missing quizzes generated and cached');
+      }
+
+      if (!hasAnyQuestions && videoSegments.length > 0) {
+        updateSeekbarIndicator(0);
+      }
+
+      setTimeout(() => indicatorsAllowed && addQuizIndicatorsToSeekbar(), 1500);
+      success = true;
+      return true;
     }
 
-    await persistGenerationStatus();
+    console.log('LearnTube: Cache miss - fetching transcript');
 
-    const missingIndices = [];
-    let hasAnyQuestions = false;
-
-    videoSegments.forEach((segment, index) => {
-      if (!segment.questions?.length) {
-        missingIndices.push(index);
-      } else {
-        hasAnyQuestions = true;
+    let transcript = await getCachedTranscript(currentVideoId);
+    if (!transcript) {
+      transcript = await getTranscript();
+      if (!transcript?.length) {
+        console.warn('LearnTube: Transcript not available yet, will retry');
+        return false;
       }
-    });
+
+      await cacheTranscript(currentVideoId, transcript);
+    }
+
+    console.log('LearnTube: Segmenting transcript and pre-generating quizzes');
+    videoSegments = segmentTranscript(transcript);
+    if (!Array.isArray(videoSegments) || videoSegments.length === 0) {
+      console.warn('LearnTube: Transcript segmentation produced no segments');
+      return false;
+    }
+
+    await pregenerateAllQuizzes();
 
     indicatorsAllowed = true;
     addQuizIndicatorsToSeekbar();
 
-    if (missingIndices.length) {
-      console.log(`LearnTube: ${missingIndices.length} segments missing questions, generating in parallel`);
-      const batchSize = 3;
-      for (let i = 0; i < missingIndices.length; i += batchSize) {
-        const batch = missingIndices.slice(i, i + batchSize).map(index => handleSegmentGeneration(videoSegments[index], index));
-        await Promise.all(batch);
-        if (i + batchSize < missingIndices.length) {
-          await new Promise(r => setTimeout(r, 200));
-        }
-      }
-      await persistGenerationStatus();
-      await cacheAllQuizzes(currentVideoId, videoSegments);
-      console.log('LearnTube: All missing quizzes generated and cached');
+    success = true;
+    return true;
+  } catch (error) {
+    console.error('LearnTube: Transcript process failed:', error);
+    return false;
+  } finally {
+    if (!success) {
+      transcriptProcessStarted = false;
     }
-
-    if (!hasAnyQuestions) {
-  updateSeekbarIndicator(0);
-    }
-
-    setTimeout(() => indicatorsAllowed && addQuizIndicatorsToSeekbar(), 1500);
-    return;
   }
-
-  console.log('LearnTube: Cache miss - fetching transcript');
-
-  // Fetch transcript if not cached
-  let transcript = await getCachedTranscript(currentVideoId);
-  if (!transcript) {
-    transcript = await getTranscript();
-    if (!transcript?.length) {
-      return;
-    }
-
-    await cacheTranscript(currentVideoId, transcript);
-  }
-
-  // Segment transcript and pre-generate quizzes
-  console.log('LearnTube: Segmenting transcript and pre-generating quizzes');
-  videoSegments = segmentTranscript(transcript);
-  await pregenerateAllQuizzes();
-
-  indicatorsAllowed = true;
-  addQuizIndicatorsToSeekbar();
 }
 
 // Clear seekbar indicators
@@ -1800,6 +1868,10 @@ function clearSeekbarIndicators() {
   const existingIndicators = document.querySelectorAll('.learntube-quiz-indicator');
   existingIndicators.forEach(indicator => indicator.remove());
   indicatorsAdded = false;
+  if (seekbarObserver) {
+    seekbarObserver.disconnect();
+    seekbarObserver = null;
+  }
 }
 
 // Add visual indicators on the seekbar to show when quizzes will appear
@@ -1850,7 +1922,7 @@ function addQuizIndicatorsToSeekbar() {
   }
 
   // Check video duration
-  if (!videoElement.duration || isNaN(videoElement.duration) || videoElement.duration === 0) {
+  if (!videoElement.duration || isNaN(videoElement.duration) || !Number.isFinite(videoElement.duration) || videoElement.duration === 0) {
     setTimeout(() => addQuizIndicatorsToSeekbar(), 1000);
     return;
   }
@@ -1869,18 +1941,19 @@ function addQuizIndicatorsToSeekbar() {
   // Add indicators for each quiz segment (anchor at segment end)
   let addedCount = 0;
   videoSegments.forEach((segment, index) => {
-    const duration = videoElement.duration || 0;
+    const duration = Number.isFinite(videoElement.duration) ? videoElement.duration : 0;
     const anchorTime = (() => {
       const end = typeof segment.end === 'number' ? segment.end : undefined;
       const start = typeof segment.start === 'number' ? segment.start : 0;
       let t = typeof end === 'number' ? end : start;
-      if (!duration || isNaN(duration) || duration <= 0) return t;
+      if (!duration || Number.isNaN(duration) || duration <= 0) return t;
       // Clamp inside duration to avoid off-by-one/rounding placing beyond the bar
       t = Math.max(0, Math.min(t, Math.max(0, duration - 0.25)));
       return t;
     })();
-    if (!isNaN(anchorTime)) {
-      const positionPercent = ((anchorTime / (videoElement.duration || 1)) * 100).toFixed(4);
+    if (Number.isFinite(anchorTime)) {
+      const safeDuration = duration || 1;
+      const positionPercent = ((anchorTime / safeDuration) * 100).toFixed(4);
 
       // Create indicator element
       const indicator = document.createElement('div');
@@ -1941,7 +2014,7 @@ function addQuizIndicatorsToSeekbar() {
 
       // Add to seekbar
       seekbarContainer.appendChild(indicator);
-  updateSeekbarIndicator(index);
+      updateSeekbarIndicator(index);
       addedCount++;
     }
   });
@@ -1966,7 +2039,7 @@ function addQuizIndicatorsToSeekbar() {
   try {
     const duration = videoElement.duration || 0;
     const triggerPercentage = CONFIG.FINAL_QUIZ_TRIGGER_PERCENTAGE || 0.92;
-    if (duration && !isNaN(duration)) {
+  if (duration && Number.isFinite(duration)) {
       const positionPercent = (triggerPercentage * 100).toFixed(4);
       const finalIndicator = document.createElement('div');
       finalIndicator.className = 'learntube-quiz-indicator learntube-final-indicator';
@@ -2109,10 +2182,18 @@ function startIndicatorMonitoring() {
     const indicators = document.querySelectorAll('.learntube-quiz-indicator');
 
     indicators.forEach((indicator, index) => {
+      if (indicator.classList.contains('learntube-final-indicator')) {
+        if (!indicator.title) {
+          indicator.title = 'Final Quiz';
+        }
+        return;
+      }
       const anchorTime = indicator.dataset.anchorTime ? parseInt(indicator.dataset.anchorTime, 10) : null;
       const anchorLabel = Number.isFinite(anchorTime) ? ` @ ${anchorTime}s` : '';
+      const segmentIndex = Number.parseInt(indicator.getAttribute('data-segment-index'), 10);
+      const quizNumber = Number.isFinite(segmentIndex) ? segmentIndex + 1 : index + 1;
       indicator.style.background = 'linear-gradient(135deg, #3b82f6, #1d4ed8)';
-      indicator.title = `Quiz ${index + 1}${anchorLabel}`;
+      indicator.title = `Quiz ${quizNumber}${anchorLabel}`;
     });
   };
 
@@ -2153,7 +2234,12 @@ async function init() {
   }
 
   videoElement.addEventListener('loadstart', () => {
-    monitorAttached = false;
+    if (typeof monitorCleanup === 'function') {
+      monitorCleanup();
+      monitorCleanup = null;
+    } else {
+      monitorAttached = false;
+    }
     setTimeout(monitorVideo, 0);
   });
 
@@ -2165,14 +2251,19 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   if (message.action === 'clearCache') {
     (async () => {
-      const currentVideoId = extractVideoId();
-      if (!currentVideoId) {
-        sendResponse({ success: false, message: 'No video ID found' });
-        return;
-      }
+      try {
+        const currentVideoId = extractVideoId();
+        if (!currentVideoId) {
+          sendResponse({ success: false, message: 'No video ID found' });
+          return;
+        }
 
-      await clearCachedData(currentVideoId);
-      sendResponse({ success: true, message: 'Cache cleared for this video' });
+        await clearCachedData(currentVideoId);
+        sendResponse({ success: true, message: 'Cache cleared for this video' });
+      } catch (error) {
+        console.error('LearnTube: Error clearing cache:', error);
+        sendResponse({ success: false, message: 'Failed to clear cache' });
+      }
     })();
     return true;
   }
@@ -2239,9 +2330,18 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.action === 'checkModelStatus') {
-    checkModelStatus().then(result => {
-      sendResponse(result);
-    });
+    checkModelStatus()
+      .then(result => {
+        sendResponse(result);
+      })
+      .catch(error => {
+        console.error('LearnTube: Failed to check model status:', error);
+        sendResponse({
+          success: false,
+          languageModel: { status: 'not-ready', message: 'Check failed', canDownload: false },
+          summarizer: { status: 'not-ready', message: 'Check failed', canDownload: false }
+        });
+      });
     return true;
   }
 
@@ -2264,29 +2364,44 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.action === 'downloadModel') {
-    downloadModel(message.modelType).then(result => {
-      sendResponse(result);
-    });
+    downloadModel(message.modelType)
+      .then(result => {
+        sendResponse(result);
+      })
+      .catch(error => {
+        console.error('LearnTube: Failed to download model:', error);
+        sendResponse({ success: false, message: 'Download failed' });
+      });
     return true;
   }
 
   if (message.action === 'updateSettings') {
     loadUserSettings().then(async () => {
-      // If extension was just disabled, clean up
       if (!userSettings.enabled) {
         console.log('LearnTube: Extension disabled, cleaning up');
         removeOverlay();
         clearSeekbarIndicators();
         quizActive = false;
+        transcriptProcessStarted = false;
+        modelsInitialized = false;
+        modelsInitializing = false;
+        if (typeof monitorCleanup === 'function') {
+          monitorCleanup();
+          monitorCleanup = null;
+        }
       } else {
-        // If extension was just enabled and we have a video, reinitialize
         const currentVideoId = extractVideoId();
         if (currentVideoId && !videoElement) {
           console.log('LearnTube: Extension enabled, reinitializing');
           await init();
+        } else if (videoElement) {
+          monitorVideo();
         }
       }
       sendResponse({ success: true });
+    }).catch(error => {
+      console.error('LearnTube: Error updating settings:', error);
+      sendResponse({ success: false, message: 'Failed to update settings' });
     });
     return true;
   }
@@ -2414,6 +2529,10 @@ async function downloadModel(modelType) {
 
 // Auto-initialize models on page load
 async function autoInitializeModels() {
+  if (modelsInitialized || modelsInitializing) {
+    return;
+  }
+  modelsInitializing = true;
   try {
     // Check LanguageModel
     if (typeof LanguageModel !== 'undefined') {
@@ -2489,8 +2608,13 @@ async function autoInitializeModels() {
         }
       }
     }
+
+    modelsInitialized = true;
   } catch (error) {
     console.log('LearnTube: Error during model auto-initialization:', error.message);
+    modelsInitialized = false;
+  } finally {
+    modelsInitializing = false;
   }
 }
 
@@ -2517,6 +2641,12 @@ const observer = new MutationObserver(() => {
       currentUrl = window.location.href;
 
       // Reset all state variables
+      if (typeof monitorCleanup === 'function') {
+        monitorCleanup();
+        monitorCleanup = null;
+      } else {
+        monitorAttached = false;
+      }
       videoId = null;
       currentSegmentIndex = 0;
       quizActive = false;
@@ -2529,7 +2659,7 @@ const observer = new MutationObserver(() => {
       finalQuizQuestions = null;
       finalQuizGenerating = false;
       transcriptProcessStarted = false;
-  generationStatus = null;
+      generationStatus = null;
 
       // Clear UI elements
       clearSeekbarIndicators();
