@@ -25,9 +25,15 @@
       </div>
     </div>
 
-    <div class="popup-section" id="statusSection">
-      <h2>Video Quiz Status</h2>
-      <div id="statusContent" class="status-content">
+    <div class="popup-section collapsible-section collapsed" id="statusSection">
+      <button class="collapsible-toggle" id="statusToggle" type="button" aria-expanded="false" aria-controls="statusContent">
+        <span class="collapsible-title">Video Quiz Status</span>
+        <span class="collapsible-summary">
+          <span id="statusSummaryPill" class="status-pill status-pending">Checking…</span>
+          <span class="collapsible-icon" aria-hidden="true"></span>
+        </span>
+      </button>
+      <div id="statusContent" class="status-content" aria-hidden="true">
         <div class="status-placeholder">Checking current video...</div>
       </div>
     </div>

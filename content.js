@@ -7,6 +7,7 @@ let finalQuizShown = false;
 let videoSegments = [];
 let monitorAttached = false;
 let shownSegmentsSet = new Set();
+let pendingSegmentTriggers = new Set();
 let seekbarObserver = null;
 let indicatorsAllowed = false;
 let indicatorsAdded = false;
@@ -513,9 +514,21 @@ async function handleSegmentGeneration(segment, index) {
     segment.questions = questions;
     segment.status = 'completed';
     segment.errorMessage = '';
-  await markSegmentStatus(index, 'completed', questions.length, '');
-  updateSeekbarIndicator(index);
+    await markSegmentStatus(index, 'completed', questions.length, '');
+    updateSeekbarIndicator(index);
     addIndicatorForSegment(index);
+    if (pendingSegmentTriggers.has(index)) {
+      pendingSegmentTriggers.delete(index);
+      setTimeout(() => {
+        if (!userSettings.enabled || !userSettings.autoQuiz) {
+          return;
+        }
+        const displayed = autoShowSegmentQuiz(index);
+        if (!displayed) {
+          pendingSegmentTriggers.add(index);
+        }
+      }, 0);
+    }
   } catch (error) {
     const message = error?.message || 'Quiz generation failed';
     console.error(`LearnTube: Quiz generation failed for segment ${index + 1}:`, message);
@@ -523,8 +536,50 @@ async function handleSegmentGeneration(segment, index) {
     segment.status = 'error';
     segment.errorMessage = message;
     await markSegmentStatus(index, 'error', 0, message);
-  updateSeekbarIndicator(index);
+    updateSeekbarIndicator(index);
+    pendingSegmentTriggers.delete(index);
   }
+}
+
+function autoShowSegmentQuiz(index) {
+  const segment = videoSegments[index];
+  if (!segment || !Array.isArray(segment.questions) || segment.questions.length === 0) {
+    return false;
+  }
+  if (!userSettings.enabled || !userSettings.autoQuiz) {
+    return false;
+  }
+  if (quizActive) {
+    return false;
+  }
+
+  if (!videoElement) {
+    videoElement = document.querySelector('video');
+    if (!videoElement) {
+      return false;
+    }
+  }
+
+  const targetTime = Number.isFinite(segment.end) ? segment.end : segment.start;
+  if (videoElement && Number.isFinite(targetTime)) {
+    const duration = Number.isFinite(videoElement.duration) ? videoElement.duration : null;
+    const epsilon = 0.1;
+    let adjusted = Math.max(0, targetTime - epsilon);
+    if (duration && duration > 0) {
+      adjusted = Math.min(adjusted, Math.max(0, duration - epsilon));
+    }
+    try {
+      videoElement.currentTime = adjusted;
+    } catch (error) {
+      console.warn('LearnTube: Unable to adjust playback position for quiz:', error);
+    }
+  }
+
+  pendingSegmentTriggers.delete(index);
+  shownSegmentsSet.add(index);
+  videoElement.pause();
+  showQuiz(segment.questions, index);
+  return true;
 }
 
 async function pregenerateAllQuizzes() {
@@ -1623,24 +1678,20 @@ async function monitorVideo() {
       }
 
       if (isAtSegmentEnd && !shownSegmentsSet.has(i)) {
-        console.log(`LearnTube: Auto-triggering quiz for segment ${i + 1} at time ${currentTime.toFixed(1)}s (segment end: ${segment.end.toFixed(1)}s)`);
+        const displayed = autoShowSegmentQuiz(i);
+        if (displayed) {
+          console.log(`LearnTube: Auto-triggered quiz for segment ${i + 1} at ${currentTime.toFixed(1)}s`);
+          break;
+        }
 
-        shownSegmentsSet.add(i);
-
-        videoElement.pause();
-
-        if (segment.questions && segment.questions.length > 0) {
-          showQuiz(segment.questions, i);
-        } else {
-          console.log(`LearnTube: Generating quiz on-demand for segment ${i + 1} (start=${Math.round(segment.start || 0)}s)`);
-          handleSegmentGeneration(segment, i).then(() => {
-            if (segment.questions && segment.questions.length > 0) {
-              console.log(`LearnTube: Completed on-demand quiz for segment ${i + 1} with ${segment.questions.length} question(s)`);
-              showQuiz(segment.questions, i);
-            } else if (videoElement) {
-              videoElement.play();
-            }
-          });
+        if (!pendingSegmentTriggers.has(i)) {
+          console.log(`LearnTube: Quiz for segment ${i + 1} not ready; generating now`);
+          pendingSegmentTriggers.add(i);
+          if (segment.status !== 'processing') {
+            handleSegmentGeneration(segment, i).catch(error => {
+              console.error(`LearnTube: On-demand quiz generation failed for segment ${i + 1}:`, error);
+            });
+          }
         }
 
         break;
@@ -1709,6 +1760,7 @@ async function startTranscriptProcess() {
     return false;
   }
   transcriptProcessStarted = true;
+  pendingSegmentTriggers.clear();
 
   let success = false;
 
@@ -2383,6 +2435,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         clearSeekbarIndicators();
         quizActive = false;
         transcriptProcessStarted = false;
+        pendingSegmentTriggers.clear();
         modelsInitialized = false;
         modelsInitializing = false;
         if (typeof monitorCleanup === 'function') {
@@ -2654,6 +2707,7 @@ const observer = new MutationObserver(() => {
       videoSegments = [];
       monitorAttached = false;
       shownSegmentsSet.clear();
+  pendingSegmentTriggers.clear();
       indicatorsAllowed = false;
       indicatorsAdded = false;
       finalQuizQuestions = null;

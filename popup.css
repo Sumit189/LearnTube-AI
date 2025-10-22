@@ -120,40 +120,20 @@ body[data-theme="light"] .status-title {
 
 body[data-theme="light"] .status-final {
   border-color: #dcdcdc;
-  background: rgba(59, 130, 246, 0.16);
+  background: rgba(0, 0, 0, 0.02);
 }
 
-body[data-theme="light"] .status-final.status-final-completed {
-  background: rgba(16, 185, 129, 0.22);
-  border-color: rgba(16, 185, 129, 0.42);
-}
-
-body[data-theme="light"] .status-final.status-final-processing {
-  background: rgba(245, 158, 11, 0.22);
-  border-color: rgba(245, 158, 11, 0.45);
-}
-
-body[data-theme="light"] .status-final.status-final-pending {
-  background: rgba(59, 130, 246, 0.2);
-  border-color: rgba(59, 130, 246, 0.45);
-}
-
-body[data-theme="light"] .status-final.status-final-error {
-  background: rgba(239, 68, 68, 0.24);
-  border-color: rgba(239, 68, 68, 0.5);
-}
-
+body[data-theme="light"] .status-final.status-final-completed,
+body[data-theme="light"] .status-final.status-final-processing,
+body[data-theme="light"] .status-final.status-final-pending,
+body[data-theme="light"] .status-final.status-final-error,
 body[data-theme="light"] .status-final.status-final-skipped {
-  background: rgba(148, 163, 184, 0.22);
-  border-color: rgba(148, 163, 184, 0.45);
+  background: rgba(0, 0, 0, 0.02);
+  border-color: #dcdcdc;
 }
 
 body[data-theme="light"] .status-final-label {
   color: #1f2937;
-}
-
-body[data-theme="light"] .status-badge-row {
-  gap: 6px;
 }
 
 body[data-theme="light"] .status-progress.waiting {
@@ -276,6 +256,92 @@ body[data-theme="light"] .popup-footer p {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+.collapsible-section {
+  position: relative;
+}
+
+.collapsible-toggle {
+  width: 100%;
+  background: none;
+  border: none;
+  color: inherit;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0;
+  cursor: pointer;
+  margin-bottom: 16px;
+  font: inherit;
+  text-align: left;
+}
+
+.collapsible-toggle:focus {
+  outline: none;
+}
+
+.collapsible-toggle:focus-visible {
+  outline: 2px solid rgba(59, 130, 246, 0.7);
+  outline-offset: 4px;
+  border-radius: 8px;
+}
+
+.collapsible-title {
+  font-size: 16px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.collapsible-summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+  color: #94a3b8;
+  font-weight: 600;
+}
+
+.collapsible-summary-label {
+  opacity: 0.85;
+}
+
+.collapsible-icon::before {
+  content: '\25BC';
+  display: inline-block;
+  font-size: 12px;
+  color: #94a3b8;
+  transition: transform 0.2s ease;
+}
+
+.collapsible-section.collapsed .collapsible-icon::before {
+  transform: rotate(-90deg);
+}
+
+.collapsible-section.collapsed .collapsible-toggle {
+  margin-bottom: 0;
+}
+
+.collapsible-section.collapsed .status-content {
+  display: none;
+}
+
+.collapsible-section .status-content {
+  margin-top: 12px;
+}
+
+.collapsible-section.collapsed .status-content {
+  margin-top: 0;
+}
+
+body[data-theme="light"] .collapsible-summary {
+  color: #4b5563;
+}
+
+body[data-theme="light"] .collapsible-icon::before {
+  color: #64748b;
 }
 
 .stats-grid {
@@ -534,12 +600,6 @@ body[data-theme="light"] .popup-footer p {
   flex: 1;
 }
 
-.status-badge-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
 .status-progress {
   display: flex;
   flex-direction: column;
@@ -663,7 +723,7 @@ body[data-theme="light"] .popup-footer p {
   padding: 12px 14px;
   border-radius: 12px;
   border: 1px solid #262626;
-  background: rgba(59, 130, 246, 0.12);
+  background: rgba(255, 255, 255, 0.03);
 }
 
 .status-final-info {
@@ -695,29 +755,13 @@ body[data-theme="light"] .popup-footer p {
   margin: 0;
 }
 
-.status-final.status-final-completed {
-  background: rgba(16, 185, 129, 0.15);
-  border-color: rgba(16, 185, 129, 0.35);
-}
-
-.status-final.status-final-processing {
-  background: rgba(245, 158, 11, 0.15);
-  border-color: rgba(245, 158, 11, 0.35);
-}
-
-.status-final.status-final-pending {
-  background: rgba(59, 130, 246, 0.15);
-  border-color: rgba(59, 130, 246, 0.35);
-}
-
-.status-final.status-final-error {
-  background: rgba(239, 68, 68, 0.18);
-  border-color: rgba(239, 68, 68, 0.4);
-}
-
+.status-final.status-final-completed,
+.status-final.status-final-processing,
+.status-final.status-final-pending,
+.status-final.status-final-error,
 .status-final.status-final-skipped {
-  background: rgba(148, 163, 184, 0.15);
-  border-color: rgba(148, 163, 184, 0.35);
+  background: rgba(255, 255, 255, 0.03);
+  border-color: #262626;
 }
 
 .status-final-note-completed {

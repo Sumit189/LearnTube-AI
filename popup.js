@@ -45,6 +45,41 @@ function labelForStatus(rawStatus) {
   return STATUS_LABELS[status] || STATUS_LABELS.pending;
 }
 
+function deriveOverallStatus(status) {
+  if (!status) return 'pending';
+  const overall = (status.overallStatus || '').toString().toLowerCase();
+  if (overall) return overall;
+  const finalStatus = (status.final?.status || '').toString().toLowerCase();
+  if (finalStatus === 'error') return 'error';
+  return 'processing';
+}
+
+function updateStatusSummary(state = 'pending', labelOverride) {
+  const pill = document.getElementById('statusSummaryPill');
+  if (!pill) return;
+  const normalized = (state || 'pending').toString().toLowerCase();
+  pill.className = classForStatus(normalized);
+  pill.textContent = labelOverride ? labelOverride : labelForStatus(normalized);
+}
+
+const statusSectionEl = document.getElementById('statusSection');
+const statusToggleBtn = document.getElementById('statusToggle');
+const statusContentEl = document.getElementById('statusContent');
+if (statusContentEl) {
+  const initiallyCollapsed = statusSectionEl?.classList.contains('collapsed');
+  statusContentEl.setAttribute('aria-hidden', initiallyCollapsed ? 'true' : 'false');
+}
+if (statusToggleBtn && statusSectionEl) {
+  statusToggleBtn.addEventListener('click', () => {
+    const expanded = statusToggleBtn.getAttribute('aria-expanded') === 'true';
+    statusToggleBtn.setAttribute('aria-expanded', String(!expanded));
+    statusSectionEl.classList.toggle('collapsed', expanded);
+    if (statusContentEl) {
+      statusContentEl.setAttribute('aria-hidden', expanded ? 'true' : 'false');
+    }
+  });
+}
+
 function formatRelativeTime(timestamp) {
   if (!timestamp && timestamp !== 0) return 'Just now';
   const tsNumber = Number(timestamp);
@@ -67,9 +102,6 @@ function formatRelativeTime(timestamp) {
 
 function renderCurrentStatus(status) {
   const videoTitle = escapeHtml(status?.videoTitle || 'Current video');
-  const overallStatus = status?.overallStatus || (status?.final?.status === 'error' ? 'error' : 'processing');
-  const overallBadge = `<span class="${classForStatus(overallStatus)}">${labelForStatus(overallStatus)}</span>`;
-
   const segments = Array.isArray(status?.segments) ? status.segments : [];
   let completed = 0;
   let processing = 0;
@@ -191,7 +223,6 @@ function renderCurrentStatus(status) {
       <div class="status-header">
         <div class="status-title">${videoTitle}</div>
       </div>
-      <div class="status-badge-row">${overallBadge}</div>
       ${progressMarkup}
       ${metricsMarkup}
       ${finalLine}
@@ -205,11 +236,13 @@ async function loadGenerationStatus() {
   const container = document.getElementById('statusContent');
   if (!container) return;
 
+  updateStatusSummary('pending', 'Checking…');
   container.innerHTML = '<div class="status-placeholder">Checking current video...</div>';
 
   try {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     if (!tab?.url || !tab.url.includes('youtube.com/watch')) {
+      updateStatusSummary('skipped', 'Unavailable');
       container.innerHTML = '<div class="status-placeholder">Open a YouTube video to see quiz generation progress.</div>';
       return;
     }
@@ -226,13 +259,17 @@ async function loadGenerationStatus() {
     const currentStatus = videoId ? statusMap[videoId] : null;
 
     if (!currentStatus) {
+      updateStatusSummary('pending', 'Waiting');
       container.innerHTML = '<div class="status-placeholder">No quiz activity recorded for this video yet.</div>';
       return;
     }
 
+    const overallStatus = deriveOverallStatus(currentStatus);
+    updateStatusSummary(overallStatus);
     container.innerHTML = renderCurrentStatus(currentStatus);
   } catch (error) {
     console.error('Error loading generation status:', error);
+    updateStatusSummary('error', 'Error');
     container.innerHTML = '<div class="status-placeholder status-error">Unable to load quiz status.</div>';
   }
 }
