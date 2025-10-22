@@ -502,8 +502,8 @@ async function checkModelStatus() {
       });
     } catch (err) {
       console.warn('LearnTube: Content script not available for model status:', err?.message || err);
-      updateModelStatus('languageModelStatus', 'not-ready', 'Extension not loaded', false);
-      updateModelStatus('summarizerStatus', 'not-ready', 'Extension not loaded', false);
+      updateModelStatus('languageModelStatus', 'not-ready', 'Refresh the YouTube tab to load LearnTube AI', false);
+      updateModelStatus('summarizerStatus', 'not-ready', 'Refresh the YouTube tab to load LearnTube AI', false);
       return;
     }
     
@@ -511,8 +511,8 @@ async function checkModelStatus() {
       updateModelStatus('languageModelStatus', response.languageModel.status, response.languageModel.message, response.languageModel.canDownload);
       updateModelStatus('summarizerStatus', response.summarizer.status, response.summarizer.message, response.summarizer.canDownload);
     } else {
-      updateModelStatus('languageModelStatus', 'not-ready', 'Extension not loaded', false);
-      updateModelStatus('summarizerStatus', 'not-ready', 'Extension not loaded', false);
+      updateModelStatus('languageModelStatus', 'not-ready', 'Refresh the YouTube tab to load LearnTube AI', false);
+      updateModelStatus('summarizerStatus', 'not-ready', 'Refresh the YouTube tab to load LearnTube AI', false);
     }
     
   } catch (error) {
