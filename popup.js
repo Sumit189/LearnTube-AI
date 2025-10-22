@@ -710,18 +710,16 @@ async function shareProgress() {
 
       const { videoTitle, totalQuestions, totalCorrect, accuracy } = response.data;
       
-      // Create share text for current video
-      shareText = `🎓 Quiz Progress: "${videoTitle}"
+  // Create share text for current video
+  shareText = `LearnTube AI Progress — "${videoTitle}"
 
-📊 Results:
-• Questions: ${totalQuestions}
-• Correct: ${totalCorrect}
-• Accuracy: ${accuracy}%
+Current video stats:
+- Questions answered: ${totalQuestions}
+- Correct answers: ${totalCorrect}
+- Accuracy: ${accuracy}%
 
-🧠 Enhanced with LearnTube AI
-Transform YouTube into interactive learning with AI-powered quizzes.
-
-Get LearnTube AI: https://github.com/sumit189/learntube-ai`;
+Keep learning with interactive quizzes from LearnTube AI.
+Get the extension: https://github.com/sumit189/learntube-ai`;
     } else {
       // Overall progress
       const progress = await chrome.runtime.sendMessage({ type: 'GET_PROGRESS' });
@@ -758,19 +756,17 @@ Get LearnTube AI: https://github.com/sumit189/learntube-ai`;
       
       const accuracy = totalQuestions > 0 ? Math.round((totalScore / totalQuestions) * 100) : 0;
       
-      shareText = `🎓 Overall Quiz Progress
+  shareText = `LearnTube AI Progress Summary
 
-📊 Results:
-• Videos: ${totalVideos}
-• Quizzes: ${totalQuizzes}
-• Questions: ${totalQuestions}
-• Correct: ${totalScore}
-• Accuracy: ${accuracy}%
+Lifetime stats:
+- Videos studied: ${totalVideos}
+- Quizzes completed: ${totalQuizzes}
+- Questions answered: ${totalQuestions}
+- Correct answers: ${totalScore}
+- Accuracy: ${accuracy}%
 
-🧠 Enhanced with LearnTube AI
-Transform YouTube into interactive learning with AI-powered quizzes.
-
-Get LearnTube AI: https://github.com/sumit189/learntube-ai`;
+Keep learning with interactive quizzes from LearnTube AI.
+Get the extension: https://github.com/sumit189/learntube-ai`;
     }
 
     // Copy to clipboard
