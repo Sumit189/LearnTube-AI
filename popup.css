@@ -239,6 +239,44 @@ body[data-theme="light"] .popup-footer p {
   font-weight: 500;
 }
 
+.install-guide-link,
+.install-guide-link:visited {
+  margin-top: 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #facc15;
+  text-decoration: none;
+  transition: color 0.2s ease, opacity 0.2s ease;
+}
+
+.install-guide-link::after {
+  content: '\2197';
+  font-size: 12px;
+  opacity: 0.75;
+}
+
+.install-guide-link:hover {
+  color: #fde047;
+}
+
+.install-guide-link:focus-visible {
+  outline: 2px solid rgba(255, 255, 255, 0.5);
+  outline-offset: 4px;
+  border-radius: 6px;
+}
+
+body[data-theme="light"] .install-guide-link,
+body[data-theme="light"] .install-guide-link:visited {
+  color: #facc15;
+}
+
+body[data-theme="light"] .install-guide-link:hover {
+  color: #fde047;
+}
+
 .popup-section {
   padding: 20px 24px;
   border-bottom: 1px solid #262626;

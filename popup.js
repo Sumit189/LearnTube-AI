@@ -470,6 +470,13 @@ document.getElementById('clearProgress').addEventListener('click', async () => {
   }
 });
 
+document.getElementById('openInstallGuide').addEventListener('click', (event) => {
+  event.preventDefault();
+  chrome.tabs.create({
+    url: 'https://github.com/Sumit189/LearnTube-AI?tab=readme-ov-file#installation-unpacked-extension'
+  });
+});
+
 document.getElementById('clearCache').addEventListener('click', async () => {
   try {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
