@@ -825,10 +825,8 @@ body[data-theme="light"] .collapsible-icon::before {
 
 .model-item {
   display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 16px;
   padding: 12px 16px;
   background: rgba(255, 255, 255, 0.02);
   border: 1px solid #262626;
@@ -842,8 +840,8 @@ body[data-theme="light"] .collapsible-icon::before {
 }
 
 .model-info {
-  flex: 1 1 180px;
-  min-width: 180px;
+  flex: 1 1 50%;
+  min-width: 0;
 }
 
 .model-name {
@@ -863,10 +861,25 @@ body[data-theme="light"] .collapsible-icon::before {
   align-items: center;
   justify-content: flex-end;
   gap: 8px;
-  flex: 0 1 160px;
-  flex-wrap: wrap;
-  margin-left: auto;
+  flex: 1 1 50%;
+  min-width: 0;
   text-align: right;
+  flex-wrap: wrap;
+}
+
+.model-status-indicator .status-text {
+  flex: 0 1 auto;
+  max-width: 100%;
+}
+
+.model-status-indicator .status-dot {
+  display: none;
+}
+
+.model-status-indicator .download-btn,
+.model-status-indicator .progress-bar {
+  flex: 1 1 100%;
+  width: 100%;
 }
 
 .status-dot {
