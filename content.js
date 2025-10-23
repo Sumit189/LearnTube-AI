@@ -1770,6 +1770,8 @@ async function startTranscriptProcess() {
       return false;
     }
 
+    videoId = currentVideoId;
+
     await loadUserSettings();
 
     const cachedData = await getCachedQuizzes(currentVideoId);
@@ -1786,36 +1788,29 @@ async function startTranscriptProcess() {
       }
 
       videoSegments.forEach((segment, index) => {
-        segment.status = segment.status || (segment.questions?.length ? 'completed' : 'pending');
-        segment.errorMessage = segment.errorMessage || '';
-        if (segment.questions?.length) {
+        const hasQuestions = Array.isArray(segment?.questions) && segment.questions.length > 0;
+        segment.status = hasQuestions ? 'completed' : 'pending';
+        segment.errorMessage = '';
+        if (hasQuestions) {
           console.log(`LearnTube: Segment ${index + 1} loaded with ${segment.questions.length} cached question(s)`);
         }
       });
 
-      await loadGenerationStatusFromStorage(currentVideoId);
-      if (!generationStatus && cachedData.statusSnapshot) {
-        generationStatus = {
-          ...cachedData.statusSnapshot,
-          videoId: currentVideoId,
-          videoTitle: getCurrentVideoTitle()
-        };
-      }
-      if (!generationStatus) {
-        generationStatus = createInitialGenerationStatus(videoSegments.length);
-      }
+      await clearGenerationStatus(currentVideoId);
+      generationStatus = createInitialGenerationStatus(videoSegments.length);
 
       generationStatus.videoId = currentVideoId;
       generationStatus.videoTitle = getCurrentVideoTitle();
       generationStatus.segments = videoSegments.map((segment, index) => {
-        const status = segment.status || (segment.questions?.length ? 'completed' : 'pending');
-        const questionCount = segment.questions?.length || 0;
+        const hasQuestions = Array.isArray(segment?.questions) && segment.questions.length > 0;
+        const status = hasQuestions ? 'completed' : 'pending';
+        const questionCount = hasQuestions ? segment.questions.length : 0;
         return {
           index,
           status,
           questionCount,
           target: userSettings.questionCount || 1,
-          message: segment.errorMessage || ''
+          message: ''
         };
       });
 
@@ -1835,6 +1830,10 @@ async function startTranscriptProcess() {
       } else if (finalQuizQuestions?.length) {
         generationStatus.final.status = 'completed';
         generationStatus.final.questionCount = finalQuizQuestions.length;
+        generationStatus.final.message = '';
+      } else {
+        generationStatus.final.status = 'pending';
+        generationStatus.final.questionCount = 0;
         generationStatus.final.message = '';
       }
 

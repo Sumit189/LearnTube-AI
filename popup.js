@@ -17,6 +17,16 @@ const STATUS_LABELS = {
   idle: 'Idle'
 };
 
+const modelStates = {
+  languageModel: { status: 'checking', message: 'Checking...', canDownload: false },
+  summarizer: { status: 'checking', message: 'Checking...', canDownload: false }
+};
+
+let downloadInProgress = false;
+
+const downloadModelsBtn = document.getElementById('downloadModels');
+const downloadModelsHelp = document.getElementById('downloadModelsHelp');
+
 function escapeHtml(value) {
   if (value === null || value === undefined) return '';
   return String(value).replace(/[&<>"']/g, (char) => {
@@ -60,6 +70,47 @@ function updateStatusSummary(state = 'pending', labelOverride) {
   const normalized = (state || 'pending').toString().toLowerCase();
   pill.className = classForStatus(normalized);
   pill.textContent = labelOverride ? labelOverride : labelForStatus(normalized);
+}
+
+function setModelState(modelType, state) {
+  if (!modelType || !modelStates[modelType]) {
+    return;
+  }
+  modelStates[modelType] = {
+    status: (state?.status || 'not-ready'),
+    message: state?.message || '',
+    canDownload: Boolean(state?.canDownload)
+  };
+}
+
+function updateDownloadModelsBtn() {
+  if (!downloadModelsBtn) {
+    return;
+  }
+
+  const languageState = modelStates.languageModel || {};
+  const summarizerState = modelStates.summarizer || {};
+  const needsDownload = [languageState, summarizerState].some(state => state?.status === 'not-ready' && state?.canDownload);
+  const hadFailure = [languageState, summarizerState].some(state => (state?.message || '').toLowerCase().includes('failed'));
+
+  if (downloadInProgress) {
+    downloadModelsBtn.style.display = 'block';
+    downloadModelsBtn.disabled = true;
+    const currentLabel = (downloadModelsBtn.textContent || '').toLowerCase();
+    if (!currentLabel.includes('download')) {
+      downloadModelsBtn.textContent = 'Downloading...';
+    }
+  } else if (needsDownload) {
+    downloadModelsBtn.style.display = 'block';
+    downloadModelsBtn.disabled = false;
+    downloadModelsBtn.textContent = hadFailure ? 'Try Again' : 'Download AI Models';
+  } else {
+    downloadModelsBtn.style.display = 'none';
+  }
+
+  if (downloadModelsHelp) {
+    downloadModelsHelp.style.display = (downloadInProgress || needsDownload) ? 'block' : 'none';
+  }
 }
 
 const statusSectionEl = document.getElementById('statusSection');
@@ -489,8 +540,11 @@ async function checkModelStatus() {
     
     if (!tab.url || !tab.url.includes('youtube.com/watch')) {
       // Not on YouTube, show unavailable status
+      setModelState('languageModel', { status: 'not-ready', message: 'Not on YouTube', canDownload: false });
+      setModelState('summarizer', { status: 'not-ready', message: 'Not on YouTube', canDownload: false });
       updateModelStatus('languageModelStatus', 'not-ready', 'Not on YouTube', false);
       updateModelStatus('summarizerStatus', 'not-ready', 'Not on YouTube', false);
+      updateDownloadModelsBtn();
       return;
     }
     
@@ -502,23 +556,34 @@ async function checkModelStatus() {
       });
     } catch (err) {
       console.warn('LearnTube: Content script not available for model status:', err?.message || err);
-      updateModelStatus('languageModelStatus', 'not-ready', 'Refresh the YouTube tab to load LearnTube AI', false);
-      updateModelStatus('summarizerStatus', 'not-ready', 'Refresh the YouTube tab to load LearnTube AI', false);
+      setModelState('languageModel', { status: 'not-ready', message: 'Refresh the YT tab to load LearnTube AI', canDownload: false });
+      setModelState('summarizer', { status: 'not-ready', message: 'Refresh the YT tab to load LearnTube AI', canDownload: false });
+      updateModelStatus('languageModelStatus', 'not-ready', 'Refresh the YT tab to load LearnTube AI', false);
+      updateModelStatus('summarizerStatus', 'not-ready', 'Refresh the YT tab to load LearnTube AI', false);
+      updateDownloadModelsBtn();
       return;
     }
     
     if (response) {
+      setModelState('languageModel', response.languageModel);
+      setModelState('summarizer', response.summarizer);
       updateModelStatus('languageModelStatus', response.languageModel.status, response.languageModel.message, response.languageModel.canDownload);
       updateModelStatus('summarizerStatus', response.summarizer.status, response.summarizer.message, response.summarizer.canDownload);
     } else {
-      updateModelStatus('languageModelStatus', 'not-ready', 'Refresh the YouTube tab to load LearnTube AI', false);
-      updateModelStatus('summarizerStatus', 'not-ready', 'Refresh the YouTube tab to load LearnTube AI', false);
+      setModelState('languageModel', { status: 'not-ready', message: 'Refresh the YT tab to load LearnTube AI', canDownload: false });
+      setModelState('summarizer', { status: 'not-ready', message: 'Refresh the YT tab to load LearnTube AI', canDownload: false });
+      updateModelStatus('languageModelStatus', 'not-ready', 'Refresh the YT tab to load LearnTube AI', false);
+      updateModelStatus('summarizerStatus', 'not-ready', 'Refresh the YT tab to load LearnTube AI', false);
     }
+    updateDownloadModelsBtn();
     
   } catch (error) {
     console.error('Error checking model status:', error);
+    setModelState('languageModel', { status: 'not-ready', message: 'Error checking', canDownload: false });
+    setModelState('summarizer', { status: 'not-ready', message: 'Error checking', canDownload: false });
     updateModelStatus('languageModelStatus', 'not-ready', 'Error checking', false);
     updateModelStatus('summarizerStatus', 'not-ready', 'Error checking', false);
+    updateDownloadModelsBtn();
   }
 }
 
@@ -550,45 +615,55 @@ function updateModelStatus(elementId, status, message, canDownload = false) {
   }
   
   if (progressBar) {
-    if (status === 'checking' && message === 'Downloading...') {
+    const isDownloadingMessage = typeof message === 'string' && message.toLowerCase().includes('download');
+    if (status === 'checking' && isDownloadingMessage) {
       progressBar.style.display = 'flex';
-    } else {
+    } else if (status !== 'checking') {
       progressBar.style.display = 'none';
     }
   }
 }
 
-// Download button event listeners
-document.getElementById('downloadLanguageModel').addEventListener('click', async () => {
-  await downloadModel('languageModel');
-});
+if (downloadModelsBtn) {
+  downloadModelsBtn.addEventListener('click', async () => {
+    await downloadModel('languageModel', downloadModelsBtn);
+  });
+}
 
-document.getElementById('downloadSummarizer').addEventListener('click', async () => {
-  await downloadModel('summarizer');
-});
+updateDownloadModelsBtn();
 
-async function downloadModel(modelType) {
+async function downloadModel(modelType, triggerButton = null) {
+  const fallbackBtn = document.getElementById(`download${modelType.charAt(0).toUpperCase() + modelType.slice(1)}`);
+  const downloadBtn = triggerButton || fallbackBtn || null;
+  const statusElement = modelType === 'languageModel' ? 'languageModelStatus' : 'summarizerStatus';
+  const companionType = modelType === 'languageModel' ? 'summarizer' : 'languageModel';
+  const companionElement = companionType === 'languageModel' ? 'languageModelStatus' : 'summarizerStatus';
+  const progressBar = document.getElementById(`${modelType}Progress`);
+  const companionProgressBar = document.getElementById(`${companionType}Progress`);
+  let checkInterval = null;
+
   try {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    
+
     if (!tab.url || !tab.url.includes('youtube.com/watch')) {
       alert('Please navigate to a YouTube video first to download models!');
       return;
     }
-    
-    // Update button text to show it's downloading
-    const downloadBtn = document.getElementById(`download${modelType.charAt(0).toUpperCase() + modelType.slice(1)}`);
-    if (downloadBtn) {
+
+    if (downloadBtn && downloadBtn !== downloadModelsBtn) {
       downloadBtn.textContent = 'Downloading...';
       downloadBtn.disabled = true;
     }
-    
-    // Show a helpful message and progress bar
-    const statusElement = modelType === 'languageModel' ? 'languageModelStatus' : 'summarizerStatus';
-    updateModelStatus(statusElement, 'checking', 'Downloading model...', false);
-    
-    // Show progress bar
-    const progressBar = document.getElementById(`${modelType}Progress`);
+
+    downloadInProgress = true;
+    updateDownloadModelsBtn();
+
+    updateModelStatus(statusElement, 'checking', 'Downloading models...', false);
+    setModelState(modelType, { status: 'checking', message: 'Downloading models...', canDownload: false });
+
+    updateModelStatus(companionElement, 'checking', 'Awaiting bundle...', false);
+    setModelState(companionType, { status: 'checking', message: 'Awaiting bundle...', canDownload: false });
+
     if (progressBar) {
       progressBar.style.display = 'flex';
       const progressFill = progressBar.querySelector('.progress-fill');
@@ -596,85 +671,137 @@ async function downloadModel(modelType) {
       progressFill.style.width = '0%';
       progressText.textContent = '0%';
     }
-    
-    // Send message to content script to trigger model download
-    await chrome.tabs.sendMessage(tab.id, { 
+
+    if (companionProgressBar) {
+      companionProgressBar.style.display = 'none';
+    }
+
+    await chrome.tabs.sendMessage(tab.id, {
       action: 'downloadModel',
-      modelType: modelType
+      modelType
     });
-    
-    // Check status periodically to see if download is complete
+
     let checkCount = 0;
-    const maxChecks = 60; // Check for up to 2 minutes
-    
-    const checkInterval = setInterval(async () => {
-      checkCount++;
-      
+    const maxChecks = 60;
+
+    checkInterval = setInterval(async () => {
+      checkCount += 1;
+
       try {
-        const response = await chrome.tabs.sendMessage(tab.id, { 
-          action: 'checkModelStatus' 
-        });
-        
+        const response = await chrome.tabs.sendMessage(tab.id, { action: 'checkModelStatus' });
+
         if (response) {
+          setModelState('languageModel', response.languageModel);
+          setModelState('summarizer', response.summarizer);
+          updateModelStatus('languageModelStatus', response.languageModel.status, response.languageModel.message, response.languageModel.canDownload);
+          updateModelStatus('summarizerStatus', response.summarizer.status, response.summarizer.message, response.summarizer.canDownload);
+          updateDownloadModelsBtn();
+
           const modelStatus = modelType === 'languageModel' ? response.languageModel : response.summarizer;
-          
+
           if (modelStatus.status === 'ready') {
-            // Download complete
             if (progressBar) {
               const progressFill = progressBar.querySelector('.progress-fill');
               const progressText = progressBar.querySelector('.progress-text');
               progressFill.style.width = '100%';
               progressText.textContent = '100%';
-              
+
               setTimeout(() => {
                 progressBar.style.display = 'none';
               }, 1500);
             }
-            
-            updateModelStatus(statusElement, 'ready', 'Ready', false);
-            clearInterval(checkInterval);
-            
-            if (downloadBtn) {
+
+            downloadInProgress = false;
+            updateDownloadModelsBtn();
+
+            if (downloadBtn && downloadBtn !== downloadModelsBtn) {
               downloadBtn.style.display = 'none';
             }
-          } else if (modelStatus.status === 'checking' || modelStatus.status === 'loading') {
-            updateModelStatus(statusElement, 'checking', 'Downloading model...', false);
+
+            if (checkInterval) {
+              clearInterval(checkInterval);
+              checkInterval = null;
+            }
+
+            checkModelStatus();
           } else if (modelStatus.status === 'not-ready' && checkCount > 5) {
-            // Only show error after a few checks to allow initialization
             updateModelStatus(statusElement, 'not-ready', 'Download failed', true);
-            
+            setModelState(modelType, { status: 'not-ready', message: 'Download failed', canDownload: true });
+
             if (progressBar) {
               progressBar.style.display = 'none';
             }
-            
+
+            downloadInProgress = false;
+            updateDownloadModelsBtn();
+
             if (downloadBtn) {
               downloadBtn.textContent = 'Try Again';
               downloadBtn.disabled = false;
             }
-            clearInterval(checkInterval);
+
+            if (checkInterval) {
+              clearInterval(checkInterval);
+              checkInterval = null;
+            }
+
+            checkModelStatus();
           }
         }
       } catch (error) {
         console.error('LearnTube: Error checking model status:', error);
       }
-      
+
       if (checkCount >= maxChecks) {
-        clearInterval(checkInterval);
-        
+        if (checkInterval) {
+          clearInterval(checkInterval);
+          checkInterval = null;
+        }
+
         if (progressBar) {
           progressBar.style.display = 'none';
         }
-        
+
+        setModelState(modelType, { status: 'not-ready', message: 'Download failed (timeout)', canDownload: true });
+        updateModelStatus(statusElement, 'not-ready', 'Download timed out', true);
+
+        downloadInProgress = false;
+        updateDownloadModelsBtn();
+
         if (downloadBtn) {
           downloadBtn.textContent = 'Try Again';
           downloadBtn.disabled = false;
         }
+
+        checkModelStatus();
       }
-    }, 2000); // Check every 2 seconds
-    
+    }, 2000);
+
   } catch (error) {
     console.error('Error downloading model:', error);
+
+    if (checkInterval) {
+      clearInterval(checkInterval);
+      checkInterval = null;
+    }
+
+    if (progressBar) {
+      progressBar.style.display = 'none';
+    }
+
+    setModelState(modelType, { status: 'not-ready', message: 'Download failed', canDownload: true });
+    updateModelStatus(statusElement, 'not-ready', 'Download failed', true);
+
+    downloadInProgress = false;
+    updateDownloadModelsBtn();
+
+    if (downloadBtn) {
+      downloadBtn.textContent = 'Try Again';
+      downloadBtn.disabled = false;
+    }
+
     alert('Error: Could not download model. Make sure you are on a YouTube video page.');
+    checkModelStatus();
   }
 }
 
@@ -840,6 +967,18 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (progress < 100) {
       updateModelStatus(statusElement, 'checking', `Downloading ${progress}%...`, false);
     }
+    setModelState(modelType, { status: 'checking', message: `Downloading ${progress}%...`, canDownload: false });
+
+    if (downloadInProgress && downloadModelsBtn && modelType === 'languageModel') {
+      downloadModelsBtn.style.display = 'block';
+      downloadModelsBtn.disabled = true;
+      downloadModelsBtn.textContent = progress < 100 ? `Downloading... ${progress}%` : 'Finishing download...';
+      if (downloadModelsHelp) {
+        downloadModelsHelp.style.display = 'block';
+      }
+    }
+
+    updateDownloadModelsBtn();
   } else if (message.type === 'VIDEO_CHANGED') {
     // Refresh generation status when video changes
     loadGenerationStatus();
