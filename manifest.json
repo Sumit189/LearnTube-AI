@@ -9,7 +9,7 @@
     "scripting"
   ],
   "host_permissions": [
-    "https://www.youtube.com/*",
+    "https://*.youtube.com/*",
     "https://learntubeai-analytics.sumit-18-paul.workers.dev/*"
   ],
   "background": {
@@ -17,7 +17,7 @@
   },
   "content_scripts": [
     {
-      "matches": ["https://www.youtube.com/watch*"],
+      "matches": ["https://*.youtube.com/watch*"],
       "js": ["content.js"],
       "css": ["content.css"],
       "run_at": "document_idle"
