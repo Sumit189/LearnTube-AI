@@ -2348,12 +2348,13 @@ async function startTranscriptProcess() {
         segment.errorMessage = '';
         if (hasQuestions) {
           console.log(`LearnTube: Segment ${index + 1} loaded with ${segment.questions.length} cached question(s)`);
+          indicatorsAllowed = true;
+          addQuizIndicatorsToSeekbar();
         }
       });
 
       await clearGenerationStatus(currentVideoId);
       generationStatus = createInitialGenerationStatus(videoSegments.length);
-
       generationStatus.videoId = currentVideoId;
       generationStatus.videoTitle = getCurrentVideoTitle();
       generationStatus.segments = videoSegments.map((segment, index) => {
