@@ -1191,30 +1191,16 @@ async function pregenerateAllQuizzes() {
   if (!indicatorsAllowed) {
     indicatorsAllowed = true;
   }
-
-  if (videoSegments.length > 0) {
-    await handleSegmentGeneration(videoSegments[0], 0);
-  }
-
-  const batchSize = 3;
-  for (let i = 1; i < videoSegments.length; i += batchSize) {
-    const batch = [];
-    const end = Math.min(i + batchSize, videoSegments.length);
-
-    for (let j = i; j < end; j++) {
-      const segment = videoSegments[j];
-      if (!segment) continue;
-      batch.push(handleSegmentGeneration(segment, j));
-    }
-
-    await Promise.all(batch);
-    if (end < videoSegments.length) {
-      await new Promise(r => setTimeout(r, 200));
-    }
-  }
-
+  const firstSegmentPromise = videoSegments.length > 0 ? handleSegmentGeneration(videoSegments[0], 0) : Promise.resolve();
+  const parallelPromises = [firstSegmentPromise];
   if (finalQuizPromise) {
-    await finalQuizPromise;
+    parallelPromises.push(finalQuizPromise);
+  }
+  await Promise.all(parallelPromises);
+  for (let i = 1; i < videoSegments.length; i++) {
+    const segment = videoSegments[i];
+    if (!segment) continue;
+    await handleSegmentGeneration(segment, i);
   }
 
   await persistGenerationStatus();
@@ -2400,14 +2386,9 @@ async function startTranscriptProcess() {
       }
 
       if (missingIndices.length) {
-        console.log(`LearnTube: ${missingIndices.length} segments missing questions, generating in parallel`);
-        const batchSize = 3;
-        for (let i = 0; i < missingIndices.length; i += batchSize) {
-          const batch = missingIndices.slice(i, i + batchSize).map(index => handleSegmentGeneration(videoSegments[index], index));
-          await Promise.all(batch);
-          if (i + batchSize < missingIndices.length) {
-            await new Promise(r => setTimeout(r, 200));
-          }
+        console.log(`LearnTube: ${missingIndices.length} segments missing questions, generating sequentially`);
+        for (const index of missingIndices) {
+          await handleSegmentGeneration(videoSegments[index], index);
         }
         console.log('LearnTube: All missing quizzes generated');
       }
