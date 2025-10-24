@@ -21,6 +21,7 @@ let monitorCleanup = null;
 let modelsInitialized = false;
 let modelsInitializing = false;
 let lastClearedVideoId = null;
+const hashedVideoIdCache = new Map();
 
 const ANALYTICS_LAST_ACTIVE_KEY = 'learntube_analytics_last_active';
 const QUIZ_ANALYTICS_CONFIG = {
@@ -127,6 +128,32 @@ function logStorageError(context, error) {
     console.log(`LearnTube: ${context} skipped, extension reloaded`);
   } else {
     console.error(`LearnTube: ${context}:`, error);
+  }
+}
+
+async function getHashedVideoId(rawVideoId) {
+  if (!rawVideoId) {
+    return 'hash_unavailable';
+  }
+  if (hashedVideoIdCache.has(rawVideoId)) {
+    return hashedVideoIdCache.get(rawVideoId);
+  }
+  try {
+    if (!crypto?.subtle?.digest) {
+      throw new Error('subtle crypto unavailable');
+    }
+    const encoder = new TextEncoder();
+    const data = encoder.encode(rawVideoId);
+    const digest = await crypto.subtle.digest('SHA-256', data);
+    const hashArray = Array.from(new Uint8Array(digest));
+    const hashHex = hashArray.map(byte => byte.toString(16).padStart(2, '0')).join('');
+    hashedVideoIdCache.set(rawVideoId, hashHex);
+    return hashHex;
+  } catch (error) {
+    console.warn('LearnTube: Failed to hash video id for analytics:', error);
+    const fallback = 'hash_unavailable';
+    hashedVideoIdCache.set(rawVideoId, fallback);
+    return fallback;
   }
 }
 
@@ -373,7 +400,7 @@ async function ensureFinalQuizReady(segments, options = {}) {
       finalQuizQuestions = generated;
       await markFinalStatus('completed', generated.length, '');
       if (videoId) {
-        enqueueQuizGenerationEvent(videoId, {
+        await enqueueQuizGenerationEvent(videoId, {
           quiz_type: 'final',
           segment_index: null,
           question_count: generated.length,
@@ -400,7 +427,7 @@ async function ensureFinalQuizReady(segments, options = {}) {
       finalQuizQuestions = null;
       await markFinalStatus('error', 0, message);
       if (videoId) {
-        enqueueQuizGenerationEvent(videoId, {
+        await enqueueQuizGenerationEvent(videoId, {
           quiz_type: 'final',
           segment_index: null,
           question_count: 0,
@@ -581,7 +608,7 @@ function enqueueQuizAnalyticsUpdate(_videoId, _segmentIndex, _isCorrect, isFinal
   }
 }
 
-function enqueueQuizGenerationEvent(videoId, details = {}) {
+async function enqueueQuizGenerationEvent(videoId, details = {}) {
   if (!videoId || userSettings.analyticsEnabled === false) {
     return;
   }
@@ -595,8 +622,10 @@ function enqueueQuizGenerationEvent(videoId, details = {}) {
     payload.generationEvents = [];
   }
 
+  const hashedVideoId = await getHashedVideoId(videoId);
+
   payload.generationEvents.push({
-    video_id: videoId,
+    video_id_hash: hashedVideoId,
     quiz_type: details.quiz_type || 'segment',
     segment_index: typeof details.segment_index === 'number' ? details.segment_index : null,
     question_count: typeof details.question_count === 'number' ? details.question_count : null,
@@ -900,7 +929,7 @@ async function handleSegmentGeneration(segment, index) {
     segment.errorMessage = '';
     await markSegmentStatus(index, 'completed', questions.length, '');
     if (videoId) {
-      enqueueQuizGenerationEvent(videoId, {
+      await enqueueQuizGenerationEvent(videoId, {
         quiz_type: 'segment',
         segment_index: index,
         question_count: questions.length,
@@ -931,7 +960,7 @@ async function handleSegmentGeneration(segment, index) {
     updateSeekbarIndicator(index);
     pendingSegmentTriggers.delete(index);
     if (videoId) {
-      enqueueQuizGenerationEvent(videoId, {
+      await enqueueQuizGenerationEvent(videoId, {
         quiz_type: 'segment',
         segment_index: index,
         question_count: 0,
