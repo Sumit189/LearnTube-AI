@@ -1049,6 +1049,7 @@ async function handleSegmentGeneration(segment, index) {
         status: 'completed'
       });
     }
+    await cacheAllQuizzes(videoId, videoSegments);
     updateSeekbarIndicator(index);
     addIndicatorForSegment(index);
     if (pendingSegmentTriggers.has(index)) {
