@@ -48,20 +48,37 @@ if (typeof window !== 'undefined' && !window.__learntubeAnalyticsListenersAttach
 }
 
 function trackAnalyticsEvent(eventName, params = {}) {
-  if (!eventName) {
+  if (!eventName || userSettings.analyticsEnabled === false) {
     return;
   }
-  if (userSettings.analyticsEnabled === false) {
+
+  if (!chrome?.runtime?.id || typeof chrome.runtime.sendMessage !== 'function') {
     return;
   }
+
+  const message = {
+    type: 'TRACK_ANALYTICS',
+    event: eventName,
+    params
+  };
+
   try {
-    chrome.runtime.sendMessage({
-      type: 'TRACK_ANALYTICS',
-      event: eventName,
-      params
-    }).catch(() => {});
+    const sendResult = chrome.runtime.sendMessage(message);
+    if (typeof sendResult?.catch === 'function') {
+      sendResult.catch(error => {
+        if (isContextInvalidated(error)) {
+          console.log('LearnTube: Analytics event skipped, extension reloaded');
+        } else {
+          console.warn('LearnTube: Unable to send analytics event:', error);
+        }
+      });
+    }
   } catch (error) {
-    console.warn('LearnTube: Unable to send analytics event:', error);
+    if (isContextInvalidated(error)) {
+      console.log('LearnTube: Analytics event skipped, extension reloaded');
+    } else {
+      console.warn('LearnTube: Unable to send analytics event:', error);
+    }
   }
 }
 
@@ -128,6 +145,22 @@ function logStorageError(context, error) {
     console.log(`LearnTube: ${context} skipped, extension reloaded`);
   } else {
     console.error(`LearnTube: ${context}:`, error);
+  }
+}
+
+function safeRuntimeSendMessage(message) {
+  if (!chrome?.runtime?.id || typeof chrome.runtime.sendMessage !== 'function') {
+    return;
+  }
+  try {
+    const result = chrome.runtime.sendMessage(message);
+    if (typeof result?.catch === 'function') {
+      result.catch(() => {});
+    }
+  } catch (error) {
+    if (!isContextInvalidated(error)) {
+      console.warn('LearnTube: Runtime message failed:', error);
+    }
   }
 }
 
@@ -553,9 +586,10 @@ function flushQuizAnalytics(force = false) {
   const generationList = Array.isArray(generationEvents) ? generationEvents : [];
   const totals = userTotals || {};
 
-  const hasUserTotals = Number.isFinite(totals.correct) || Number.isFinite(totals.incorrect) || Number.isFinite(totals.total);
+  const answeredCount = Number.isFinite(totals.total) ? totals.total : 0;
+  const hasAnswered = answeredCount > 0;
 
-  if (!hasUserTotals && !generationList.length) {
+  if (!hasAnswered && !generationList.length) {
     quizAnalyticsState.payload = null;
     quizAnalyticsState.bufferedAnswers = 0;
     return;
@@ -564,7 +598,7 @@ function flushQuizAnalytics(force = false) {
   trackAnalyticsEvent('quiz_progress_snapshot', {
     user_correct_total: totals.correct || 0,
     user_incorrect_total: totals.incorrect || 0,
-    user_total_answered: totals.total || 0,
+    user_total_answered: answeredCount,
     generation_event_count: generationList.length,
     generation_events: generationList,
     flush_reason: force ? 'forced' : 'scheduled'
@@ -2964,65 +2998,64 @@ async function checkModelStatus() {
 }
 
 
+const MODEL_DOWNLOADERS = {
+  languageModel: {
+    label: 'Language Model',
+    isAvailable: () => typeof LanguageModel !== 'undefined',
+    unavailableMessage: 'LanguageModel API not available',
+    create: () => LanguageModel.create({
+      temperature: 0.7,
+      topK: 40,
+      monitor: attachDownloadMonitor('languageModel', 'Language Model')
+    })
+  },
+  summarizer: {
+    label: 'Summarizer',
+    isAvailable: () => typeof Summarizer !== 'undefined',
+    unavailableMessage: 'Summarizer API not available',
+    create: () => Summarizer.create({
+      type: 'key-points',
+      format: 'plain-text',
+      length: 'medium',
+      sharedContext: 'This is educational video content.',
+      outputLanguage: 'en',
+      monitor: attachDownloadMonitor('summarizer', 'Summarizer')
+    })
+  }
+};
+
+function attachDownloadMonitor(modelType, label) {
+  return (monitor) => {
+    if (!monitor || typeof monitor.addEventListener !== 'function') {
+      return;
+    }
+    monitor.addEventListener('downloadprogress', (event) => {
+      const percentage = Math.round((event?.loaded || 0) * 100);
+      console.log(`LearnTube: ${label} downloaded ${percentage}%`);
+      safeRuntimeSendMessage({
+        type: 'MODEL_DOWNLOAD_PROGRESS',
+        modelType,
+        progress: percentage
+      });
+    });
+  };
+}
+
 // Download model function
 async function downloadModel(modelType) {
   try {
-    if (modelType === 'languageModel') {
-      if (typeof LanguageModel !== 'undefined') {
-        // Trigger model download by creating a session with progress monitor
-        LanguageModel.create({
-          temperature: 0.7,
-          topK: 40,
-          monitor(m) {
-            m.addEventListener('downloadprogress', (e) => {
-              const percentage = Math.round(e.loaded * 100);
-              console.log(`LearnTube: Language Model downloaded ${percentage}%`);
-
-              // Send progress update to popup
-              chrome.runtime.sendMessage({
-                type: 'MODEL_DOWNLOAD_PROGRESS',
-                modelType: 'languageModel',
-                progress: percentage
-              }).catch(() => { });
-            });
-          }
-        });
-        console.log('LearnTube: Language Model download initiated');
-        return { success: true, message: 'Download initiated' };
-      } else {
-        return { success: false, message: 'LanguageModel API not available' };
-      }
-    } else if (modelType === 'summarizer') {
-      if (typeof Summarizer !== 'undefined') {
-        // Trigger model download by creating a summarizer with progress monitor
-        Summarizer.create({
-          type: 'key-points',
-          format: 'plain-text',
-          length: 'medium',
-          sharedContext: 'This is educational video content.',
-          outputLanguage: 'en',
-          monitor(m) {
-            m.addEventListener('downloadprogress', (e) => {
-              const percentage = Math.round(e.loaded * 100);
-              console.log(`LearnTube: Summarizer downloaded ${percentage}%`);
-
-              // Send progress update to popup
-              chrome.runtime.sendMessage({
-                type: 'MODEL_DOWNLOAD_PROGRESS',
-                modelType: 'summarizer',
-                progress: percentage
-              }).catch(() => { });
-            });
-          }
-        });
-        console.log('LearnTube: Summarizer download initiated');
-        return { success: true, message: 'Download initiated' };
-      } else {
-        return { success: false, message: 'Summarizer API not available' };
-      }
-    } else {
+    const config = MODEL_DOWNLOADERS[modelType];
+    if (!config) {
       return { success: false, message: 'Unknown model type' };
     }
+
+    if (!config.isAvailable()) {
+      return { success: false, message: config.unavailableMessage };
+    }
+
+    await config.create();
+    console.log(`LearnTube: ${config.label} download initiated`);
+    return { success: true, message: 'Download initiated' };
   } catch (error) {
     console.error('LearnTube: Error downloading model:', error);
     return { success: false, message: 'Download failed: ' + error.message };
@@ -3100,7 +3133,7 @@ const observer = new MutationObserver(() => {
       resetVideoState();
 
       statusResetPromise.finally(() => {
-        chrome.runtime.sendMessage({ type: 'VIDEO_CHANGED' }).catch(() => {});
+        safeRuntimeSendMessage({ type: 'VIDEO_CHANGED' });
 
         // Reinitialize for new video after status reset completes
         setTimeout(async () => {
@@ -3123,7 +3156,7 @@ const observer = new MutationObserver(() => {
       })();
 
       cleanupPromise.finally(() => {
-        chrome.runtime.sendMessage({ type: 'VIDEO_CHANGED' }).catch(() => {});
+        safeRuntimeSendMessage({ type: 'VIDEO_CHANGED' });
       });
     }
   }

@@ -28,6 +28,104 @@ let downloadInProgress = false;
 const downloadModelsBtn = document.getElementById('downloadModels');
 const downloadModelsHelp = document.getElementById('downloadModelsHelp');
 
+function isMissingContentScriptError(error) {
+  const message = (error?.message || '').toLowerCase();
+  if (!message) return false;
+  return message.includes('could not establish connection') ||
+    message.includes('receiving end does not exist') ||
+    message.includes('message port closed before a response') ||
+    message.includes('the message channel closed');
+}
+
+async function ensureContentScript(tabId) {
+  if (!tabId || !chrome?.scripting) {
+    return false;
+  }
+  try {
+    await chrome.scripting.insertCSS({
+      target: { tabId },
+      files: ['content.css']
+    });
+  } catch (_cssError) {
+    // Ignore style injection failures since styles may already exist or the page may block them.
+  }
+  try {
+    await chrome.scripting.executeScript({
+      target: { tabId },
+      files: ['content.js']
+    });
+    return true;
+  } catch (scriptError) {
+    console.warn('LearnTube: Failed to inject content script:', scriptError);
+    return false;
+  }
+}
+
+async function sendMessageToTab(tabId, message, options) {
+  try {
+    return await chrome.tabs.sendMessage(tabId, message, options);
+  } catch (error) {
+    if (isMissingContentScriptError(error)) {
+      const injected = await ensureContentScript(tabId);
+      if (injected) {
+        return chrome.tabs.sendMessage(tabId, message, options);
+      }
+    }
+    throw error;
+  }
+}
+
+function isYouTubeWatchUrl(url) {
+  return typeof url === 'string' && url.includes('youtube.com/watch');
+}
+
+async function getActiveTab() {
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    return tab || null;
+  } catch (error) {
+    console.error('LearnTube: Failed to query active tab:', error);
+    return null;
+  }
+}
+
+async function getActiveYouTubeTab() {
+  const tab = await getActiveTab();
+  if (tab && isYouTubeWatchUrl(tab.url)) {
+    return tab;
+  }
+  return null;
+}
+
+function normalizeModelState(state) {
+  return {
+    status: state?.status || 'not-ready',
+    message: state?.message || '',
+    canDownload: Boolean(state?.canDownload)
+  };
+}
+
+function applyModelStates(languageState, summarizerState) {
+  const normalizedLanguage = normalizeModelState(languageState);
+  const normalizedSummarizer = normalizeModelState(summarizerState);
+
+  setModelState('languageModel', normalizedLanguage);
+  setModelState('summarizer', normalizedSummarizer);
+  updateModelStatus('languageModelStatus', normalizedLanguage.status, normalizedLanguage.message, normalizedLanguage.canDownload);
+  updateModelStatus('summarizerStatus', normalizedSummarizer.status, normalizedSummarizer.message, normalizedSummarizer.canDownload);
+  updateDownloadModelsBtn();
+}
+
+function applyUnavailableModelStates(message) {
+  const fallbackMessage = message || 'Refresh the YT tab to load LearnTube AI';
+  const unavailableState = {
+    status: 'not-ready',
+    message: fallbackMessage,
+    canDownload: false
+  };
+  applyModelStates(unavailableState, unavailableState);
+}
+
 function escapeHtml(value) {
   if (value === null || value === undefined) return '';
   return String(value).replace(/[&<>"']/g, (char) => {
@@ -292,8 +390,8 @@ async function loadGenerationStatus() {
   container.innerHTML = '<div class="status-placeholder">Checking current video...</div>';
 
   try {
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    if (!tab?.url || !tab.url.includes('youtube.com/watch')) {
+    const tab = await getActiveTab();
+    if (!tab || !isYouTubeWatchUrl(tab.url)) {
       updateStatusSummary('skipped', 'Unavailable');
       container.innerHTML = '<div class="status-placeholder">Open a YouTube video to see quiz generation progress.</div>';
       return;
@@ -350,7 +448,7 @@ async function saveSettings() {
     
     const tabs = await chrome.tabs.query({ url: '*://*.youtube.com/*' });
     tabs.forEach(tab => {
-      chrome.tabs.sendMessage(tab.id, { action: 'updateSettings' }).catch(() => {});
+      sendMessageToTab(tab.id, { action: 'updateSettings' }).catch(() => {});
     });
   } catch (error) {
     console.error('Error saving settings:', error);
@@ -493,14 +591,13 @@ document.getElementById('openInstallGuide').addEventListener('click', (event) =>
 
 document.getElementById('clearCache').addEventListener('click', async () => {
   try {
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    
-    if (!tab.url || !tab.url.includes('youtube.com/watch')) {
+    const tab = await getActiveYouTubeTab();
+    if (!tab) {
       alert('Please navigate to a YouTube video first to clear cache!');
       return;
     }
     
-    await chrome.tabs.sendMessage(tab.id, { 
+    await sendMessageToTab(tab.id, { 
       action: 'clearCache' 
     });
     
@@ -556,55 +653,36 @@ document.getElementById('clearAllCache').addEventListener('click', async () => {
 
 async function checkModelStatus() {
   try {
-    // Get the current active tab
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    
-    if (!tab.url || !tab.url.includes('youtube.com/watch')) {
-      // Not on YouTube, show unavailable status
-      setModelState('languageModel', { status: 'not-ready', message: 'Not on YouTube', canDownload: false });
-      setModelState('summarizer', { status: 'not-ready', message: 'Not on YouTube', canDownload: false });
-      updateModelStatus('languageModelStatus', 'not-ready', 'Not on YouTube', false);
-      updateModelStatus('summarizerStatus', 'not-ready', 'Not on YouTube', false);
-      updateDownloadModelsBtn();
+    const tab = await getActiveTab();
+    if (!tab || !isYouTubeWatchUrl(tab.url)) {
+      const unavailableState = { status: 'not-ready', message: 'Not on YouTube', canDownload: false };
+      applyModelStates(unavailableState, unavailableState);
       return;
     }
-    
-    // Send message to content script to check model status
+
     let response = null;
     try {
-      response = await chrome.tabs.sendMessage(tab.id, { 
-        action: 'checkModelStatus' 
+      response = await sendMessageToTab(tab.id, {
+        action: 'checkModelStatus'
       });
     } catch (err) {
-      console.warn('LearnTube: Content script not available for model status:', err?.message || err);
-      setModelState('languageModel', { status: 'not-ready', message: 'Refresh the YT tab to load LearnTube AI', canDownload: false });
-      setModelState('summarizer', { status: 'not-ready', message: 'Refresh the YT tab to load LearnTube AI', canDownload: false });
-      updateModelStatus('languageModelStatus', 'not-ready', 'Refresh the YT tab to load LearnTube AI', false);
-      updateModelStatus('summarizerStatus', 'not-ready', 'Refresh the YT tab to load LearnTube AI', false);
-      updateDownloadModelsBtn();
+      const reconnectMessage = isMissingContentScriptError(err)
+        ? 'Reload the YouTube tab to initialize LearnTube AI'
+        : 'Refresh the YT tab to load LearnTube AI';
+      console.warn('LearnTube: Unable to reach content script for model status:', err?.message || err);
+      applyUnavailableModelStates(reconnectMessage);
       return;
     }
-    
+
     if (response) {
-      setModelState('languageModel', response.languageModel);
-      setModelState('summarizer', response.summarizer);
-      updateModelStatus('languageModelStatus', response.languageModel.status, response.languageModel.message, response.languageModel.canDownload);
-      updateModelStatus('summarizerStatus', response.summarizer.status, response.summarizer.message, response.summarizer.canDownload);
+      applyModelStates(response.languageModel, response.summarizer);
     } else {
-      setModelState('languageModel', { status: 'not-ready', message: 'Refresh the YT tab to load LearnTube AI', canDownload: false });
-      setModelState('summarizer', { status: 'not-ready', message: 'Refresh the YT tab to load LearnTube AI', canDownload: false });
-      updateModelStatus('languageModelStatus', 'not-ready', 'Refresh the YT tab to load LearnTube AI', false);
-      updateModelStatus('summarizerStatus', 'not-ready', 'Refresh the YT tab to load LearnTube AI', false);
+      applyUnavailableModelStates('Refresh the YT tab to load LearnTube AI');
     }
-    updateDownloadModelsBtn();
     
   } catch (error) {
     console.error('Error checking model status:', error);
-    setModelState('languageModel', { status: 'not-ready', message: 'Error checking', canDownload: false });
-    setModelState('summarizer', { status: 'not-ready', message: 'Error checking', canDownload: false });
-    updateModelStatus('languageModelStatus', 'not-ready', 'Error checking', false);
-    updateModelStatus('summarizerStatus', 'not-ready', 'Error checking', false);
-    updateDownloadModelsBtn();
+    applyUnavailableModelStates('Error checking');
   }
 }
 
@@ -656,17 +734,14 @@ updateDownloadModelsBtn();
 async function downloadModel(modelType, triggerButton = null) {
   const fallbackBtn = document.getElementById(`download${modelType.charAt(0).toUpperCase() + modelType.slice(1)}`);
   const downloadBtn = triggerButton || fallbackBtn || null;
-  const statusElement = modelType === 'languageModel' ? 'languageModelStatus' : 'summarizerStatus';
   const companionType = modelType === 'languageModel' ? 'summarizer' : 'languageModel';
-  const companionElement = companionType === 'languageModel' ? 'languageModelStatus' : 'summarizerStatus';
   const progressBar = document.getElementById(`${modelType}Progress`);
   const companionProgressBar = document.getElementById(`${companionType}Progress`);
   let checkInterval = null;
 
   try {
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-
-    if (!tab.url || !tab.url.includes('youtube.com/watch')) {
+    const tab = await getActiveYouTubeTab();
+    if (!tab) {
       alert('Please navigate to a YouTube video first to download models!');
       return;
     }
@@ -679,11 +754,13 @@ async function downloadModel(modelType, triggerButton = null) {
     downloadInProgress = true;
     updateDownloadModelsBtn();
 
-    updateModelStatus(statusElement, 'checking', 'Downloading models...', false);
-    setModelState(modelType, { status: 'checking', message: 'Downloading models...', canDownload: false });
-
-    updateModelStatus(companionElement, 'checking', 'Awaiting bundle...', false);
-    setModelState(companionType, { status: 'checking', message: 'Awaiting bundle...', canDownload: false });
+    const downloadingState = { status: 'checking', message: 'Downloading models...', canDownload: false };
+    const waitingState = { status: 'checking', message: 'Awaiting bundle...', canDownload: false };
+    if (modelType === 'languageModel') {
+      applyModelStates(downloadingState, waitingState);
+    } else {
+      applyModelStates(waitingState, downloadingState);
+    }
 
     if (progressBar) {
       progressBar.style.display = 'flex';
@@ -697,7 +774,7 @@ async function downloadModel(modelType, triggerButton = null) {
       companionProgressBar.style.display = 'none';
     }
 
-    await chrome.tabs.sendMessage(tab.id, {
+    await sendMessageToTab(tab.id, {
       action: 'downloadModel',
       modelType
     });
@@ -709,14 +786,10 @@ async function downloadModel(modelType, triggerButton = null) {
       checkCount += 1;
 
       try {
-        const response = await chrome.tabs.sendMessage(tab.id, { action: 'checkModelStatus' });
+        const response = await sendMessageToTab(tab.id, { action: 'checkModelStatus' });
 
         if (response) {
-          setModelState('languageModel', response.languageModel);
-          setModelState('summarizer', response.summarizer);
-          updateModelStatus('languageModelStatus', response.languageModel.status, response.languageModel.message, response.languageModel.canDownload);
-          updateModelStatus('summarizerStatus', response.summarizer.status, response.summarizer.message, response.summarizer.canDownload);
-          updateDownloadModelsBtn();
+          applyModelStates(response.languageModel, response.summarizer);
 
           const modelStatus = modelType === 'languageModel' ? response.languageModel : response.summarizer;
 
@@ -746,8 +819,12 @@ async function downloadModel(modelType, triggerButton = null) {
 
             checkModelStatus();
           } else if (modelStatus.status === 'not-ready' && checkCount > 5) {
-            updateModelStatus(statusElement, 'not-ready', 'Download failed', true);
-            setModelState(modelType, { status: 'not-ready', message: 'Download failed', canDownload: true });
+            const failureState = { status: 'not-ready', message: 'Download failed', canDownload: true };
+            if (modelType === 'languageModel') {
+              applyModelStates(failureState, response.summarizer);
+            } else {
+              applyModelStates(response.languageModel, failureState);
+            }
 
             if (progressBar) {
               progressBar.style.display = 'none';
@@ -783,8 +860,15 @@ async function downloadModel(modelType, triggerButton = null) {
           progressBar.style.display = 'none';
         }
 
-        setModelState(modelType, { status: 'not-ready', message: 'Download failed (timeout)', canDownload: true });
-        updateModelStatus(statusElement, 'not-ready', 'Download timed out', true);
+        const timeoutState = { status: 'not-ready', message: 'Download failed (timeout)', canDownload: true };
+        const companionState = modelType === 'languageModel'
+          ? normalizeModelState(modelStates.summarizer)
+          : normalizeModelState(modelStates.languageModel);
+        if (modelType === 'languageModel') {
+          applyModelStates(timeoutState, companionState);
+        } else {
+          applyModelStates(companionState, timeoutState);
+        }
 
         downloadInProgress = false;
         updateDownloadModelsBtn();
@@ -810,8 +894,15 @@ async function downloadModel(modelType, triggerButton = null) {
       progressBar.style.display = 'none';
     }
 
-    setModelState(modelType, { status: 'not-ready', message: 'Download failed', canDownload: true });
-    updateModelStatus(statusElement, 'not-ready', 'Download failed', true);
+    const failureState = { status: 'not-ready', message: 'Download failed', canDownload: true };
+    const companionState = modelType === 'languageModel'
+      ? normalizeModelState(modelStates.summarizer)
+      : normalizeModelState(modelStates.languageModel);
+    if (modelType === 'languageModel') {
+      applyModelStates(failureState, companionState);
+    } else {
+      applyModelStates(companionState, failureState);
+    }
 
     downloadInProgress = false;
     updateDownloadModelsBtn();
@@ -835,15 +926,14 @@ async function shareProgress() {
 
     if (scope === 'video') {
       // Get current video info from content script
-      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-      
-      if (!tab.url || !tab.url.includes('youtube.com/watch')) {
+      const tab = await getActiveYouTubeTab();
+      if (!tab) {
         alert('Please open a YouTube video to share progress');
         return;
       }
 
       // Get video title and progress from content script
-      const response = await chrome.tabs.sendMessage(tab.id, { action: 'getVideoProgress' });
+      const response = await sendMessageToTab(tab.id, { action: 'getVideoProgress' });
       
       if (!response || !response.success) {
         alert('No progress data found for this video');
@@ -851,9 +941,9 @@ async function shareProgress() {
       }
 
       const { videoTitle, totalQuestions, totalCorrect, accuracy } = response.data;
-      
-  // Create share text for current video
-  shareText = `LearnTube AI Progress — "${videoTitle}"
+
+      // Create share text for current video
+      shareText = `LearnTube AI Progress — "${videoTitle}"
 
 Current video stats:
 - Questions answered: ${totalQuestions}
@@ -898,7 +988,7 @@ Get the extension: https://github.com/sumit189/learntube-ai`;
       
       const accuracy = totalQuestions > 0 ? Math.round((totalScore / totalQuestions) * 100) : 0;
       
-  shareText = `LearnTube AI Progress Summary
+    shareText = `LearnTube AI Progress Summary
 
 Lifetime stats:
 - Videos studied: ${totalVideos}
