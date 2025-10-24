@@ -23,6 +23,28 @@ let modelsInitializing = false;
 let lastClearedVideoId = null;
 
 const ANALYTICS_LAST_ACTIVE_KEY = 'learntube_analytics_last_active';
+const QUIZ_ANALYTICS_CONFIG = {
+  FLUSH_DELAY_MS: 15000,
+  MAX_BUFFERED_ANSWERS: 8
+};
+
+let quizAnalyticsState = {
+  timeoutId: null,
+  payload: null,
+  bufferedAnswers: 0
+};
+
+if (typeof window !== 'undefined' && !window.__learntubeAnalyticsListenersAttached) {
+  window.__learntubeAnalyticsListenersAttached = true;
+  const flushHandler = () => flushQuizAnalytics(true);
+  window.addEventListener('beforeunload', flushHandler);
+  window.addEventListener('pagehide', flushHandler);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') {
+      flushQuizAnalytics(true);
+    }
+  });
+}
 
 function trackAnalyticsEvent(eventName, params = {}) {
   if (!eventName) {
@@ -350,10 +372,15 @@ async function ensureFinalQuizReady(segments, options = {}) {
 
       finalQuizQuestions = generated;
       await markFinalStatus('completed', generated.length, '');
-      trackAnalyticsEvent('quiz_generated', {
-        quiz_type: 'final',
-        question_count: generated.length
-      });
+      if (videoId) {
+        enqueueQuizGenerationEvent(videoId, {
+          quiz_type: 'final',
+          segment_index: null,
+          question_count: generated.length,
+          status: 'completed',
+          flushImmediately: true
+        });
+      }
 
       if (videoId && cacheAfter) {
         await cacheAllQuizzes(videoId, videoSegments);
@@ -372,6 +399,16 @@ async function ensureFinalQuizReady(segments, options = {}) {
       console.error('LearnTube: Final quiz generation failed:', message);
       finalQuizQuestions = null;
       await markFinalStatus('error', 0, message);
+      if (videoId) {
+        enqueueQuizGenerationEvent(videoId, {
+          quiz_type: 'final',
+          segment_index: null,
+          question_count: 0,
+          status: 'error',
+          error_message: message,
+          flushImmediately: true
+        });
+      }
       throw error;
     } finally {
       finalQuizGenerating = false;
@@ -429,6 +466,159 @@ async function loadUserSettings() {
   }
 }
 
+function computeVideoProgressTotals(videoProgress) {
+  let correct = 0;
+  let incorrect = 0;
+
+  if (!videoProgress || typeof videoProgress !== 'object') {
+    return { correct: 0, incorrect: 0, total: 0 };
+  }
+
+  const segments = Array.isArray(videoProgress.segments) ? videoProgress.segments : [];
+  for (const segment of segments) {
+    if (!segment || typeof segment !== 'object') continue;
+    const score = Number(segment.score) || 0;
+    const total = Number(segment.total) || 0;
+    correct += score;
+    incorrect += Math.max(total - score, 0);
+  }
+
+  const final = videoProgress.final;
+  if (final && typeof final === 'object') {
+    const score = Number(final.score) || 0;
+    const total = Number(final.total) || 0;
+    correct += score;
+    incorrect += Math.max(total - score, 0);
+  }
+
+  return { correct, incorrect, total: correct + incorrect };
+}
+
+function computeUserProgressTotals(progressData) {
+  const totals = { correct: 0, incorrect: 0, total: 0 };
+  if (!progressData || typeof progressData !== 'object') {
+    return totals;
+  }
+
+  for (const key of Object.keys(progressData)) {
+    const videoTotals = computeVideoProgressTotals(progressData[key]);
+    totals.correct += videoTotals.correct;
+    totals.incorrect += videoTotals.incorrect;
+  }
+
+  totals.total = totals.correct + totals.incorrect;
+  return totals;
+}
+
+function flushQuizAnalytics(force = false) {
+  if (quizAnalyticsState.timeoutId) {
+    clearTimeout(quizAnalyticsState.timeoutId);
+    quizAnalyticsState.timeoutId = null;
+  }
+
+  if (!quizAnalyticsState.payload || userSettings.analyticsEnabled === false) {
+    quizAnalyticsState.payload = null;
+    quizAnalyticsState.bufferedAnswers = 0;
+    return;
+  }
+
+  const { userTotals, generationEvents } = quizAnalyticsState.payload;
+  const generationList = Array.isArray(generationEvents) ? generationEvents : [];
+  const totals = userTotals || {};
+
+  const hasUserTotals = Number.isFinite(totals.correct) || Number.isFinite(totals.incorrect) || Number.isFinite(totals.total);
+
+  if (!hasUserTotals && !generationList.length) {
+    quizAnalyticsState.payload = null;
+    quizAnalyticsState.bufferedAnswers = 0;
+    return;
+  }
+
+  trackAnalyticsEvent('quiz_progress_snapshot', {
+    user_correct_total: totals.correct || 0,
+    user_incorrect_total: totals.incorrect || 0,
+    user_total_answered: totals.total || 0,
+    generation_event_count: generationList.length,
+    generation_events: generationList,
+    flush_reason: force ? 'forced' : 'scheduled'
+  });
+
+  quizAnalyticsState.payload = null;
+  quizAnalyticsState.bufferedAnswers = 0;
+}
+
+function enqueueQuizAnalyticsUpdate(_videoId, _segmentIndex, _isCorrect, isFinal, _videoTotals, userTotals) {
+  if (userSettings.analyticsEnabled === false) {
+    return;
+  }
+
+  const payload = quizAnalyticsState.payload || {
+    userTotals: { correct: 0, incorrect: 0, total: 0 },
+    generationEvents: []
+  };
+
+  if (!Array.isArray(payload.generationEvents)) {
+    payload.generationEvents = [];
+  }
+
+  payload.userTotals = {
+    correct: userTotals.correct,
+    incorrect: userTotals.incorrect,
+    total: userTotals.total
+  };
+
+  quizAnalyticsState.payload = payload;
+  quizAnalyticsState.bufferedAnswers += 1;
+
+  if (quizAnalyticsState.timeoutId) {
+    clearTimeout(quizAnalyticsState.timeoutId);
+  }
+
+  quizAnalyticsState.timeoutId = setTimeout(() => flushQuizAnalytics(false), QUIZ_ANALYTICS_CONFIG.FLUSH_DELAY_MS);
+
+  if (quizAnalyticsState.bufferedAnswers >= QUIZ_ANALYTICS_CONFIG.MAX_BUFFERED_ANSWERS || isFinal) {
+    flushQuizAnalytics(false);
+  }
+}
+
+function enqueueQuizGenerationEvent(videoId, details = {}) {
+  if (!videoId || userSettings.analyticsEnabled === false) {
+    return;
+  }
+
+  const payload = quizAnalyticsState.payload || {
+    userTotals: { correct: 0, incorrect: 0, total: 0 },
+    generationEvents: []
+  };
+
+  if (!Array.isArray(payload.generationEvents)) {
+    payload.generationEvents = [];
+  }
+
+  payload.generationEvents.push({
+    video_id: videoId,
+    quiz_type: details.quiz_type || 'segment',
+    segment_index: typeof details.segment_index === 'number' ? details.segment_index : null,
+    question_count: typeof details.question_count === 'number' ? details.question_count : null,
+    status: details.status || 'completed',
+    error_message: details.error_message || '',
+    recorded_at: Date.now()
+  });
+
+  quizAnalyticsState.payload = payload;
+  quizAnalyticsState.bufferedAnswers += 1;
+
+  if (quizAnalyticsState.timeoutId) {
+    clearTimeout(quizAnalyticsState.timeoutId);
+  }
+
+  quizAnalyticsState.timeoutId = setTimeout(() => flushQuizAnalytics(false), QUIZ_ANALYTICS_CONFIG.FLUSH_DELAY_MS);
+
+  if (quizAnalyticsState.bufferedAnswers >= QUIZ_ANALYTICS_CONFIG.MAX_BUFFERED_ANSWERS || details.flushImmediately) {
+    flushQuizAnalytics(details.flushImmediately === true);
+  }
+}
+
 async function updateProgress(videoId, segmentIndex, isCorrect, isFinal = false) {
   try {
     const result = await chrome.storage.local.get('learntube_progress');
@@ -452,7 +642,12 @@ async function updateProgress(videoId, segmentIndex, isCorrect, isFinal = false)
       if (isCorrect) progress[videoId].segments[segmentIndex].score++;
     }
 
+    const videoTotals = computeVideoProgressTotals(progress[videoId]);
+    const userTotals = computeUserProgressTotals(progress);
+
     await chrome.storage.local.set({ learntube_progress: progress });
+
+    enqueueQuizAnalyticsUpdate(videoId, segmentIndex, isCorrect, isFinal, videoTotals, userTotals);
   } catch (error) {
     if (isContextInvalidated(error)) {
       console.log('LearnTube: Extension reloaded, progress not saved');
@@ -704,10 +899,14 @@ async function handleSegmentGeneration(segment, index) {
     segment.status = 'completed';
     segment.errorMessage = '';
     await markSegmentStatus(index, 'completed', questions.length, '');
-    trackAnalyticsEvent('quiz_generated', {
-      quiz_type: 'segment',
-      question_count: questions.length
-    });
+    if (videoId) {
+      enqueueQuizGenerationEvent(videoId, {
+        quiz_type: 'segment',
+        segment_index: index,
+        question_count: questions.length,
+        status: 'completed'
+      });
+    }
     updateSeekbarIndicator(index);
     addIndicatorForSegment(index);
     if (pendingSegmentTriggers.has(index)) {
@@ -731,6 +930,15 @@ async function handleSegmentGeneration(segment, index) {
     await markSegmentStatus(index, 'error', 0, message);
     updateSeekbarIndicator(index);
     pendingSegmentTriggers.delete(index);
+    if (videoId) {
+      enqueueQuizGenerationEvent(videoId, {
+        quiz_type: 'segment',
+        segment_index: index,
+        question_count: 0,
+        status: 'error',
+        error_message: message
+      });
+    }
   }
 }
 
@@ -2433,7 +2641,8 @@ function addIndicatorForSegment(index) {
 
 // Monitor video progress to update indicator states
 function startIndicatorMonitoring() {
-  if (!videoElement) return;
+  const indicatorVideoElement = videoElement;
+  if (!indicatorVideoElement) return;
 
   const updateIndicators = () => {
     const indicators = document.querySelectorAll('.learntube-quiz-indicator');
@@ -2454,20 +2663,22 @@ function startIndicatorMonitoring() {
     });
   };
 
-  // Update indicators every second
+  // Update indicators every 10 seconds
   updateIndicators();
   const indicatorInterval = setInterval(updateIndicators, 10000);
 
   // Clean up when video changes
   const cleanup = () => {
     clearInterval(indicatorInterval);
-    videoElement.removeEventListener('loadstart', cleanup);
-    videoElement.removeEventListener('ended', cleanup);
+    if (indicatorVideoElement) {
+      indicatorVideoElement.removeEventListener('loadstart', cleanup);
+      indicatorVideoElement.removeEventListener('ended', cleanup);
+    }
   };
 
   // Clean up on video change
-  videoElement.addEventListener('loadstart', cleanup);
-  videoElement.addEventListener('ended', cleanup);
+  indicatorVideoElement.addEventListener('loadstart', cleanup);
+  indicatorVideoElement.addEventListener('ended', cleanup);
 }
 
 async function init() {
