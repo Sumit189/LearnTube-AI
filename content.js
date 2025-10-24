@@ -109,6 +109,14 @@ const CACHE_CONFIG = {
 
 const STATUS_STORAGE_KEY = 'learntube_generation_status';
 
+const TRANSCRIPT_PROCESSING_CONFIG = {
+  SUMMARY_CHUNK_CHAR_LIMIT: 4000,
+  SUMMARY_MIN_CHUNK_CHAR_LIMIT: 1000,
+  SUMMARY_COMBINED_CHAR_LIMIT: 6000,
+  QUIZ_INPUT_CHAR_LIMIT: 8000,
+  CHUNK_REDUCTION_RATIO: 0.7
+};
+
 let generationStatus = null;
 
 const EXTENSION_INVALIDATED_TEXT = 'Extension context invalidated';
@@ -130,6 +138,57 @@ function isContextInvalidated(error) {
 
 function isNonEmptyArray(value) {
   return Array.isArray(value) && value.length > 0;
+}
+
+function isQuotaExceededError(error) {
+  const message = typeof error?.message === 'string' ? error.message : '';
+  return (error?.name === 'QuotaExceededError') || /quota ?exceeded/i.test(message);
+}
+
+function trimTextToLimit(text, limit) {
+  if (!text || !Number.isFinite(limit) || limit <= 0) {
+    return text || '';
+  }
+  if (text.length <= limit) {
+    return text;
+  }
+  const trimmed = text.slice(0, limit).trimEnd();
+  return `${trimmed}...`;
+}
+
+function splitTextIntoChunks(text, chunkSize) {
+  if (!text || !Number.isFinite(chunkSize) || chunkSize <= 0) {
+    return [];
+  }
+  const chunks = [];
+  let cursor = 0;
+  const cleanText = text.trim();
+
+  while (cursor < cleanText.length) {
+    const sliceEnd = Math.min(cursor + chunkSize, cleanText.length);
+    let end = sliceEnd;
+
+    if (sliceEnd < cleanText.length) {
+      const newlineIndex = cleanText.lastIndexOf('\n', sliceEnd);
+      const sentenceIndex = cleanText.lastIndexOf('. ', sliceEnd);
+      const boundary = Math.max(newlineIndex, sentenceIndex);
+      if (boundary > cursor + Math.floor(chunkSize * 0.4)) {
+        end = boundary + 1;
+      }
+    }
+
+    if (end <= cursor) {
+      end = Math.min(cursor + chunkSize, cleanText.length);
+    }
+
+    const chunk = cleanText.slice(cursor, end).trim();
+    if (chunk) {
+      chunks.push(chunk);
+    }
+    cursor = end;
+  }
+
+  return chunks;
 }
 
 function hasFinalQuizData() {
@@ -155,7 +214,7 @@ function safeRuntimeSendMessage(message) {
   try {
     const result = chrome.runtime.sendMessage(message);
     if (typeof result?.catch === 'function') {
-      result.catch(() => {});
+      result.catch(() => { });
     }
   } catch (error) {
     if (!isContextInvalidated(error)) {
@@ -422,7 +481,7 @@ async function ensureFinalQuizReady(segments, options = {}) {
       await markFinalStatus('processing', 0, '');
 
       const summary = await summarizeTranscript(allText);
-      const summaryText = summary || allText;
+      const summaryText = summary || trimTextToLimit(allText, TRANSCRIPT_PROCESSING_CONFIG.QUIZ_INPUT_CHAR_LIMIT);
       const finalSegment = { start: 0, end: totalDuration, text: summaryText };
       const generated = await generateQuiz(finalSegment, targetCount);
 
@@ -1309,19 +1368,24 @@ function updateSeekbarIndicator(segmentIndex) {
 }
 
 async function summarizeTranscript(fullText) {
+  const sourceText = typeof fullText === 'string' ? fullText.trim() : '';
+  if (!sourceText) {
+    return null;
+  }
+
+  if (typeof Summarizer === 'undefined') {
+    console.log('LearnTube: Summarizer API not available, using truncated transcript');
+    return trimTextToLimit(sourceText, TRANSCRIPT_PROCESSING_CONFIG.QUIZ_INPUT_CHAR_LIMIT);
+  }
+
+  const availability = await Summarizer.availability();
+  if (availability !== 'available') {
+    console.log('LearnTube: Summarizer not available, using truncated transcript');
+    return trimTextToLimit(sourceText, TRANSCRIPT_PROCESSING_CONFIG.QUIZ_INPUT_CHAR_LIMIT);
+  }
+
   let summarizer = null;
   try {
-    if (typeof Summarizer === 'undefined') {
-      console.log('LearnTube: Summarizer API not available, using full text');
-      return null;
-    }
-
-    const availability = await Summarizer.availability();
-    if (availability !== 'available') {
-      console.log('LearnTube: Summarizer not available, using full text');
-      return null;
-    }
-
     summarizer = await Summarizer.create({
       type: 'key-points',
       format: 'plain-text',
@@ -1330,13 +1394,81 @@ async function summarizeTranscript(fullText) {
       outputLanguage: 'en'
     });
 
-    const summary = await summarizer.summarize(fullText);
-    console.log('LearnTube: Successfully summarized transcript for final quiz');
+    let chunkSize = TRANSCRIPT_PROCESSING_CONFIG.SUMMARY_CHUNK_CHAR_LIMIT;
+    const minChunk = TRANSCRIPT_PROCESSING_CONFIG.SUMMARY_MIN_CHUNK_CHAR_LIMIT;
+    let combinedPieces = [];
+    let chunkRetryNeeded = true;
+    let quotaFallbackUsed = false;
 
-    return summary;
+    while (chunkRetryNeeded && chunkSize >= minChunk) {
+      const chunks = splitTextIntoChunks(sourceText, chunkSize);
+      const summaries = [];
+      chunkRetryNeeded = false;
+
+      for (const chunk of chunks) {
+        try {
+          const result = await summarizer.summarize(chunk);
+          if (result && result.trim()) {
+            summaries.push(result.trim());
+          }
+        } catch (error) {
+          if (isQuotaExceededError(error)) {
+            quotaFallbackUsed = true;
+            if (chunkSize > minChunk) {
+              chunkSize = Math.max(minChunk, Math.floor(chunkSize * TRANSCRIPT_PROCESSING_CONFIG.CHUNK_REDUCTION_RATIO));
+              console.warn('LearnTube: Summary chunk exceeded quota, retrying with smaller chunk size:', chunkSize);
+              chunkRetryNeeded = true;
+              break;
+            }
+            console.warn('LearnTube: Summary chunk exceeded quota at minimum chunk size, using truncated transcript');
+            return trimTextToLimit(sourceText, TRANSCRIPT_PROCESSING_CONFIG.QUIZ_INPUT_CHAR_LIMIT);
+          }
+          throw error;
+        }
+      }
+
+      if (!chunkRetryNeeded) {
+        combinedPieces = summaries;
+      }
+    }
+
+    if (!combinedPieces.length) {
+      if (quotaFallbackUsed) {
+        return trimTextToLimit(sourceText, TRANSCRIPT_PROCESSING_CONFIG.QUIZ_INPUT_CHAR_LIMIT);
+      }
+      console.log('LearnTube: Summarizer returned empty response, using truncated transcript');
+      return trimTextToLimit(sourceText, TRANSCRIPT_PROCESSING_CONFIG.QUIZ_INPUT_CHAR_LIMIT);
+    }
+
+    let combinedSummary = combinedPieces.join('\n\n').trim();
+    if (!combinedSummary) {
+      return trimTextToLimit(sourceText, TRANSCRIPT_PROCESSING_CONFIG.QUIZ_INPUT_CHAR_LIMIT);
+    }
+
+    if (combinedSummary.length > TRANSCRIPT_PROCESSING_CONFIG.SUMMARY_COMBINED_CHAR_LIMIT) {
+      const limitedInput = trimTextToLimit(combinedSummary, TRANSCRIPT_PROCESSING_CONFIG.SUMMARY_COMBINED_CHAR_LIMIT);
+      try {
+        const secondPass = await summarizer.summarize(limitedInput);
+        if (secondPass && secondPass.trim()) {
+          combinedSummary = secondPass.trim();
+        } else {
+          combinedSummary = limitedInput;
+        }
+      } catch (error) {
+        if (isQuotaExceededError(error)) {
+          console.warn('LearnTube: Second-pass summary exceeded quota, using trimmed combined summary');
+          combinedSummary = limitedInput;
+        } else {
+          throw error;
+        }
+      }
+    }
+
+    console.log('LearnTube: Successfully summarized transcript for final quiz');
+    return trimTextToLimit(combinedSummary, TRANSCRIPT_PROCESSING_CONFIG.QUIZ_INPUT_CHAR_LIMIT);
   } catch (error) {
     console.error('LearnTube: Error summarizing transcript:', error);
-    return null;
+    return trimTextToLimit(sourceText, TRANSCRIPT_PROCESSING_CONFIG.QUIZ_INPUT_CHAR_LIMIT);
   } finally {
     if (summarizer && typeof summarizer.destroy === 'function') {
       try {
@@ -1368,11 +1500,15 @@ async function generateQuiz(segment, desiredCount = 2) {
       maxOutputTokens: 1200
     });
     const n = Math.max(1, Math.min(4, desiredCount));
+    const promptText = trimTextToLimit(segment.text, TRANSCRIPT_PROCESSING_CONFIG.QUIZ_INPUT_CHAR_LIMIT);
+    if (promptText.length < segment.text.length) {
+      console.warn('LearnTube: Segment text truncated for quiz prompt due to size limit');
+    }
     const header = `You are an expert educator creating engaging multiple-choice questions that check solid understanding without being overly tricky.
 
 Video Content (${Math.round(segment.start || 0)}s - ${Math.round(segment.end || (segment.start || 0) + (segment.duration || 0))}s):
 """
-${segment.text}
+${promptText}
 """
 
 CRITICAL REQUIREMENTS:
@@ -1918,13 +2054,12 @@ async function showFinalQuiz(segments) {
   await ensureFinalQuizReady(segments, { allowGeneration: false, cacheAfter: false });
 
   if (!hasFinalQuizData()) {
-    console.warn('LearnTube: Final quiz not ready when requested, showing summary instead');
+    console.warn('LearnTube: Final quiz not ready when requested');
     const currentFinalStatus = (generationStatus?.final?.status || '').toLowerCase();
     if (currentFinalStatus !== 'error') {
       await markFinalStatus('processing', 0, 'Final quiz still generating');
     }
     finalQuizShown = false;
-    showFallbackSummary(segments);
     return false;
   }
 
@@ -1938,63 +2073,6 @@ async function showFinalQuiz(segments) {
 
   showQuiz(finalQuizQuestions, segments.length);
   return true;
-}
-
-function showFallbackSummary(segments) {
-  const keyPoints = segments.map((segment, index) =>
-    `• ${segment.text.substring(0, 100)}...`
-  ).slice(0, 5);
-
-  const summary = `Key points from this video:\n\n${keyPoints.join('\n')}`;
-  showSummaryOverlay(summary, segments);
-}
-
-function showSummaryOverlay(summary, segments) {
-  removeOverlay();
-  const closeFunctionName = `learntubeCloseSummary_${Date.now()}`;
-  createOverlay(`
-    <div class="learntube-card" style="z-index: 999999; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); max-width: 600px; width: 90%;">
-      <div class="learntube-header">
-        <div class="learntube-icon">📝</div>
-        <div class="learntube-title">
-          <h2>Video Summary</h2>
-          <p class="learntube-subtitle">You've completed the video!</p>
-        </div>
-        <button class="learntube-close" onclick="window.${closeFunctionName}()">×</button>
-      </div>
-      
-      <div class="learntube-summary">
-        <h3 class="summary-title">📋 Summary</h3>
-        <p class="summary-text">${summary}</p>
-      </div>
-      
-      <div class="learntube-stats">
-        <div class="stat-card">
-          <div class="stat-number">${segments.length}</div>
-          <div class="stat-label">Segments</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-number">${segments.reduce((total, s) => total + s.entries.length, 0)}</div>
-          <div class="stat-label">Captions</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-number">${Math.round(segments[segments.length - 1]?.end || 0)}s</div>
-          <div class="stat-label">Duration</div>
-        </div>
-      </div>
-      
-      <div class="learntube-actions">
-        <button class="learntube-button learntube-button-primary" onclick="window.${closeFunctionName}()">
-          Great! Continue Learning
-        </button>
-      </div>
-    </div>
-  `);
-  window[closeFunctionName] = () => {
-    removeOverlay();
-    delete window[closeFunctionName];
-  };
-  window.learntubeCloseSummary = window[closeFunctionName];
 }
 
 function createOverlay(content) {
@@ -2748,7 +2826,7 @@ async function init() {
   // Load settings first
   await loadUserSettings();
   await pingDailyAnalytics();
-  
+
   // Check if extension is enabled
   if (!userSettings.enabled) {
     console.log('LearnTube: Extension is disabled, skipping initialization');

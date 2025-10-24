@@ -441,14 +441,14 @@ async function loadSettings() {
 
 async function saveSettings() {
   try {
-    await chrome.runtime.sendMessage({ 
-      type: 'UPDATE_SETTINGS', 
-      settings 
+    await chrome.runtime.sendMessage({
+      type: 'UPDATE_SETTINGS',
+      settings
     });
-    
+
     const tabs = await chrome.tabs.query({ url: '*://*.youtube.com/*' });
     tabs.forEach(tab => {
-      sendMessageToTab(tab.id, { action: 'updateSettings' }).catch(() => {});
+      sendMessageToTab(tab.id, { action: 'updateSettings' }).catch(() => { });
     });
   } catch (error) {
     console.error('Error saving settings:', error);
@@ -489,11 +489,11 @@ function calculateStats(progress) {
   let totalQuizzes = 0;
   let totalScore = 0;
   let totalQuestions = 0;
-  
+
   for (const videoId in progress) {
     totalVideos++;
     const video = progress[videoId];
-    
+
     if (video.segments && video.segments.length > 0) {
       video.segments.forEach(segment => {
         if (segment && segment.total > 0) {
@@ -503,22 +503,22 @@ function calculateStats(progress) {
         }
       });
     }
-    
+
     if (video.final && video.final.total > 0) {
       totalQuizzes++;
       totalScore += video.final.score;
       totalQuestions += video.final.total;
     }
   }
-  
-  const avgScore = totalQuestions > 0 
-    ? Math.round((totalScore / totalQuestions) * 100) 
+
+  const avgScore = totalQuestions > 0
+    ? Math.round((totalScore / totalQuestions) * 100)
     : 0;
-  
+
   document.getElementById('totalVideos').textContent = totalVideos;
   document.getElementById('totalQuizzes').textContent = totalQuizzes;
   document.getElementById('avgScore').textContent = `${avgScore}%`;
-  
+
   if (avgScore > 0) {
     const scoreElement = document.getElementById('avgScore');
     scoreElement.style.color = avgScore >= 70 ? '#10b981' : avgScore >= 50 ? '#f59e0b' : '#ef4444';
@@ -566,12 +566,12 @@ document.getElementById('clearProgress').addEventListener('click', async () => {
       document.getElementById('totalVideos').textContent = '0';
       document.getElementById('totalQuizzes').textContent = '0';
       document.getElementById('avgScore').textContent = '0%';
-      
+
       const btn = document.getElementById('clearProgress');
       const originalText = btn.innerHTML;
       btn.innerHTML = '✓ Progress Cleared';
       btn.disabled = true;
-      
+
       setTimeout(() => {
         btn.innerHTML = originalText;
         btn.disabled = false;
@@ -596,11 +596,11 @@ document.getElementById('clearCache').addEventListener('click', async () => {
       alert('Please navigate to a YouTube video first to clear cache!');
       return;
     }
-    
-    await sendMessageToTab(tab.id, { 
-      action: 'clearCache' 
+
+    await sendMessageToTab(tab.id, {
+      action: 'clearCache'
     });
-    
+
     const btn = document.getElementById('clearCache');
     btn.innerHTML = '✓ Cache Cleared — Reloading...';
     btn.disabled = true;
@@ -631,20 +631,20 @@ document.getElementById('clearAllCache').addEventListener('click', async () => {
   if (!confirm('Are you sure you want to clear ALL cached quizzes and transcripts? This will remove data for all videos.')) {
     return;
   }
-  
+
   try {
     await chrome.runtime.sendMessage({ type: 'CLEAR_ALL_CACHE' });
-    
+
     const btn = document.getElementById('clearAllCache');
     const originalText = btn.innerHTML;
     btn.innerHTML = '✓ All Cache Cleared';
     btn.disabled = true;
-    
+
     setTimeout(() => {
       btn.innerHTML = originalText;
       btn.disabled = false;
     }, 2000);
-    
+
   } catch (error) {
     console.error('Error clearing all cache:', error);
     alert('Error: Could not clear all cache.');
@@ -679,7 +679,7 @@ async function checkModelStatus() {
     } else {
       applyUnavailableModelStates('Refresh the YT tab to load LearnTube AI');
     }
-    
+
   } catch (error) {
     console.error('Error checking model status:', error);
     applyUnavailableModelStates('Error checking');
@@ -689,21 +689,21 @@ async function checkModelStatus() {
 function updateModelStatus(elementId, status, message, canDownload = false) {
   const element = document.getElementById(elementId);
   if (!element) return;
-  
+
   const dot = element.querySelector('.status-dot');
   const text = element.querySelector('.status-text');
   const downloadBtn = element.querySelector('.download-btn');
   const progressBar = element.querySelector('.progress-bar');
-  
+
   // Remove all status classes
   dot.className = 'status-dot';
   text.className = 'status-text';
-  
+
   // Add appropriate classes
   dot.classList.add(status);
   text.classList.add(status);
   text.textContent = message;
-  
+
   // Show/hide download button and progress bar
   if (downloadBtn) {
     if (canDownload && status === 'not-ready') {
@@ -712,7 +712,7 @@ function updateModelStatus(elementId, status, message, canDownload = false) {
       downloadBtn.style.display = 'none';
     }
   }
-  
+
   if (progressBar) {
     const isDownloadingMessage = typeof message === 'string' && message.toLowerCase().includes('download');
     if (status === 'checking' && isDownloadingMessage) {
@@ -934,7 +934,7 @@ async function shareProgress() {
 
       // Get video title and progress from content script
       const response = await sendMessageToTab(tab.id, { action: 'getVideoProgress' });
-      
+
       if (!response || !response.success) {
         alert('No progress data found for this video');
         return;
@@ -964,11 +964,11 @@ Get the extension: https://github.com/sumit189/learntube-ai`;
       let totalQuizzes = 0;
       let totalScore = 0;
       let totalQuestions = 0;
-      
+
       for (const videoId in progress) {
         totalVideos++;
         const video = progress[videoId];
-        
+
         if (video.segments && video.segments.length > 0) {
           video.segments.forEach(segment => {
             if (segment && segment.total > 0) {
@@ -978,17 +978,17 @@ Get the extension: https://github.com/sumit189/learntube-ai`;
             }
           });
         }
-        
+
         if (video.final && video.final.total > 0) {
           totalQuizzes++;
           totalScore += (video.final.score || 0);
           totalQuestions += video.final.total;
         }
       }
-      
+
       const accuracy = totalQuestions > 0 ? Math.round((totalScore / totalQuestions) * 100) : 0;
-      
-    shareText = `LearnTube AI Progress Summary
+
+      shareText = `LearnTube AI Progress Summary
 
 Lifetime stats:
 - Videos studied: ${totalVideos}
@@ -1003,20 +1003,20 @@ Get the extension: https://github.com/sumit189/learntube-ai`;
 
     // Copy to clipboard
     await navigator.clipboard.writeText(shareText);
-    
+
     // Show success message
     const shareBtn = document.getElementById('shareProgress');
     const originalText = shareBtn.textContent;
     shareBtn.textContent = 'Copied!';
     shareBtn.style.background = 'rgba(0, 102, 204, 0.1)';
     shareBtn.style.borderColor = '#0066cc';
-    
+
     setTimeout(() => {
       shareBtn.textContent = originalText;
       shareBtn.style.background = '';
       shareBtn.style.borderColor = '';
     }, 2000);
-    
+
   } catch (error) {
     console.error('Error sharing progress:', error);
     alert('Failed to share progress. Please try again.');
@@ -1053,17 +1053,17 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === 'MODEL_DOWNLOAD_PROGRESS') {
     const { modelType, progress } = message;
-    
+
     // Update progress bar
     const progressBar = document.getElementById(`${modelType}Progress`);
     if (progressBar && progressBar.style.display !== 'none') {
       const progressFill = progressBar.querySelector('.progress-fill');
       const progressText = progressBar.querySelector('.progress-text');
-      
+
       if (progressFill && progressText) {
         progressFill.style.width = `${progress}%`;
         progressText.textContent = `${progress}%`;
-        
+
         // If download complete, check status to update UI
         if (progress >= 100) {
           setTimeout(() => {
@@ -1072,7 +1072,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         }
       }
     }
-    
+
     // Update status text
     const statusElement = modelType === 'languageModel' ? 'languageModelStatus' : 'summarizerStatus';
     if (progress < 100) {
@@ -1094,7 +1094,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     // Refresh generation status when video changes
     loadGenerationStatus();
   }
-  
+
   return true;
 });
 

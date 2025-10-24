@@ -116,14 +116,14 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     sendResponse({ status: 'Background script is working!' });
     return true;
   }
-  
+
   if (message.type === 'GET_SETTINGS') {
     chrome.storage.local.get('learntube_settings').then(data => {
       sendResponse(data.learntube_settings || {});
     });
     return true;
   }
-  
+
   if (message.type === 'UPDATE_SETTINGS') {
     (async () => {
       try {
@@ -157,21 +157,21 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     })();
     return true;
   }
-  
+
   if (message.type === 'GET_PROGRESS') {
     chrome.storage.local.get('learntube_progress').then(data => {
       sendResponse(data.learntube_progress || {});
     });
     return true;
   }
-  
+
   if (message.type === 'CLEAR_PROGRESS') {
     chrome.storage.local.remove('learntube_progress').then(() => {
       sendResponse({ success: true });
     });
     return true;
   }
-  
+
   if (message.type === 'GET_GENERATION_STATUS') {
     chrome.storage.local.get(CACHE_PREFIXES.STATUS).then(data => {
       sendResponse(data[CACHE_PREFIXES.STATUS] || {});
@@ -212,7 +212,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   if (changeInfo.status === 'complete' && tab.url && tab.url.includes('youtube.com/watch')) {
-    chrome.tabs.sendMessage(tabId, { type: 'VIDEO_LOADED' }).catch(() => {});
+    chrome.tabs.sendMessage(tabId, { type: 'VIDEO_LOADED' }).catch(() => { });
   }
 });
 
