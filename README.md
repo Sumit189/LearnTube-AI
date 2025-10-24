@@ -8,6 +8,14 @@ LearnTube AI is a Chrome extension that uses Chrome's built-in Gemini Nano AI (n
 
 All AI processing happens locally on your machine using Chrome's built-in AI APIs. No data leaves your browser, and it works offline once the models are downloaded.
 
+## Key Features
+
+- Automatic transcript extraction and segmentation for any captioned YouTube video
+- Mid-video and final quizzes with multiple-choice questions and detailed explanations
+- Visual seekbar markers and overlay UI to keep quizzes contextual and non-intrusive
+- Popup dashboard for managing AI model downloads, themes, and learning statistics
+- Local caching of quizzes and progress with one-click controls to refresh or reset
+
 ## How It Works
 
 ### Architecture
@@ -146,6 +154,24 @@ All data stays on your device. The extension:
 - Stores quiz progress locally using Chrome's Storage API
 
 You can clear all stored data at any time using the "Clear Progress" button in the popup.
+
+### Optional Analytics
+
+If you leave the **Analytics** toggle enabled in the popup, LearnTube AI forwards a small set of usage metrics to Google Analytics through a proxy endpoint. The payload includes:
+- A random client identifier stored in `chrome.storage.local` (no Google account or device identifiers)
+- The event name (`user_install`, `user_update`, `analytics_opt_in`, `analytics_opt_out`, `extension_active`, `quiz_generated`)
+- Lightweight event parameters such as `quiz_type` (`segment` or `final`), `question_count`, `source` (`extension_install`, `extension_update`, `popup_toggle`), and daily cadence flags
+- Automatic Measurement Protocol fields added by the proxy (`app_platform`, `hit_sequence`, `engagement_time_msec`)
+
+No transcripts, answers, video IDs, URLs, or personally identifiable information are ever sent. The analytics toggle can be turned off at any time; when disabled, the extension skips all telemetry calls.
+
+## Benefits of On-Device Processing
+
+- **Stronger privacy**: Transcripts, quiz answers, and progress never leave your browser, so sensitive viewing habits remain confidential.
+- **Lower latency**: Running Gemini Nano locally removes round trips to remote servers, keeping quizzes responsive even on slower connections.
+- **Consistent offline access**: Once models are downloaded, LearnTube AI continues to work during travel or limited connectivity scenarios.
+- **No recurring costs**: There are no metered API calls or tokens to manage, making continuous use of the extension free.
+- **Deterministic updates**: Model upgrades happen through Chrome updates and device-side downloads, reducing dependency on third-party service changes.
 
 ## Technical Stack
 
