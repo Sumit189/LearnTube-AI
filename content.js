@@ -89,7 +89,7 @@ async function pingDailyAnalytics() {
   try {
     const today = new Date();
     const key = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
-    
+
     let stored;
     try {
       stored = await chrome.storage.local.get(ANALYTICS_LAST_ACTIVE_KEY);
@@ -100,11 +100,11 @@ async function pingDailyAnalytics() {
       }
       throw storageError;
     }
-    
+
     if (stored?.[ANALYTICS_LAST_ACTIVE_KEY] === key) {
       return;
     }
-    
+
     try {
       await chrome.storage.local.set({ [ANALYTICS_LAST_ACTIVE_KEY]: key });
     } catch (storageError) {
@@ -114,7 +114,7 @@ async function pingDailyAnalytics() {
       }
       throw storageError;
     }
-    
+
     trackAnalyticsEvent('extension_active', { cadence: 'daily' });
   } catch (error) {
     console.warn('LearnTube: Daily analytics ping skipped:', error);
@@ -131,10 +131,10 @@ const CACHE_CONFIG = {
 const STATUS_STORAGE_KEY = 'learntube_generation_status';
 
 const TRANSCRIPT_PROCESSING_CONFIG = {
-  SUMMARY_CHUNK_CHAR_LIMIT: 4000,
-  SUMMARY_MIN_CHUNK_CHAR_LIMIT: 1000,
-  SUMMARY_COMBINED_CHAR_LIMIT: 6000,
-  QUIZ_INPUT_CHAR_LIMIT: 8000,
+  SUMMARY_CHUNK_CHAR_LIMIT: 2500,
+  SUMMARY_MIN_CHUNK_CHAR_LIMIT: 1500,
+  SUMMARY_COMBINED_CHAR_LIMIT: 4000,
+  QUIZ_INPUT_CHAR_LIMIT: 3000,
   CHUNK_REDUCTION_RATIO: 0.7
 };
 
@@ -1471,7 +1471,16 @@ async function summarizeTranscript(fullText) {
     console.log('LearnTube: Successfully summarized transcript for final quiz');
     return trimTextToLimit(combinedSummary, TRANSCRIPT_PROCESSING_CONFIG.QUIZ_INPUT_CHAR_LIMIT);
   } catch (error) {
-    console.error('LearnTube: Error summarizing transcript:', error);
+    if (error instanceof DOMException) {
+      console.error('LearnTube: Error summarizing transcript:', {
+        name: error.name,
+        code: error.code,
+        message: error.message,
+        stack: error.stack
+      });
+    } else {
+      console.error('LearnTube: Error summarizing transcript:', error);
+    }
     return trimTextToLimit(sourceText, TRANSCRIPT_PROCESSING_CONFIG.QUIZ_INPUT_CHAR_LIMIT);
   } finally {
     if (summarizer && typeof summarizer.destroy === 'function') {
