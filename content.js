@@ -1008,61 +1008,70 @@ function segmentTranscript(transcript) {
 }
 
 
-async function handleSegmentGeneration(segment, index) {
-  const questionTarget = userSettings.questionCount || 1;
-  segment.status = 'processing';
-  segment.errorMessage = '';
-  await markSegmentStatus(index, 'processing', 0, '');
-  updateSeekbarIndicator(index);
+async function handleSegmentGeneration(segments) {
+  for (let index = 0; index < segments.length; index++) {
+    const segment = segments[index];
+    const questionTarget = userSettings.questionCount || 1;
 
-  try {
-    const questions = await generateQuiz(segment, questionTarget);
-    segment.questions = questions;
-    segment.status = 'completed';
+    segment.status = 'processing';
     segment.errorMessage = '';
-    await markSegmentStatus(index, 'completed', questions.length, '');
-    if (videoId) {
-      await enqueueQuizGenerationEvent(videoId, {
-        quiz_type: 'segment',
-        segment_index: index,
-        question_count: questions.length,
-        status: 'completed'
-      });
-    }
+    await markSegmentStatus(index, 'processing', 0, '');
     updateSeekbarIndicator(index);
-    addIndicatorForSegment(index);
-    if (pendingSegmentTriggers.has(index)) {
+
+    try {
+      const questions = await generateQuiz(segment, questionTarget);
+      segment.questions = questions;
+      segment.status = 'completed';
+      segment.errorMessage = '';
+      await markSegmentStatus(index, 'completed', questions.length, '');
+
+      if (videoId) {
+        await enqueueQuizGenerationEvent(videoId, {
+          quiz_type: 'segment',
+          segment_index: index,
+          question_count: questions.length,
+          status: 'completed'
+        });
+      }
+
+      updateSeekbarIndicator(index);
+      addIndicatorForSegment(index);
+
+      if (pendingSegmentTriggers.has(index)) {
+        pendingSegmentTriggers.delete(index);
+        if (userSettings.enabled && userSettings.autoQuiz) {
+          const displayed = autoShowSegmentQuiz(index);
+          if (!displayed) {
+            pendingSegmentTriggers.add(index);
+          }
+        }
+      }
+    } catch (error) {
+      const message = error?.message || 'Quiz generation failed';
+      console.error(`LearnTube: Quiz generation failed for segment ${index + 1}:`, message);
+      segment.questions = [];
+      segment.status = 'error';
+      segment.errorMessage = message;
+      await markSegmentStatus(index, 'error', 0, message);
+      updateSeekbarIndicator(index);
       pendingSegmentTriggers.delete(index);
-      setTimeout(() => {
-        if (!userSettings.enabled || !userSettings.autoQuiz) {
-          return;
-        }
-        const displayed = autoShowSegmentQuiz(index);
-        if (!displayed) {
-          pendingSegmentTriggers.add(index);
-        }
-      }, 0);
-    }
-  } catch (error) {
-    const message = error?.message || 'Quiz generation failed';
-    console.error(`LearnTube: Quiz generation failed for segment ${index + 1}:`, message);
-    segment.questions = [];
-    segment.status = 'error';
-    segment.errorMessage = message;
-    await markSegmentStatus(index, 'error', 0, message);
-    updateSeekbarIndicator(index);
-    pendingSegmentTriggers.delete(index);
-    if (videoId) {
-      await enqueueQuizGenerationEvent(videoId, {
-        quiz_type: 'segment',
-        segment_index: index,
-        question_count: 0,
-        status: 'error',
-        error_message: message
-      });
+
+      if (videoId) {
+        await enqueueQuizGenerationEvent(videoId, {
+          quiz_type: 'segment',
+          segment_index: index,
+          question_count: 0,
+          status: 'error',
+          error_message: message
+        });
+      }
     }
   }
+
+  // After all segments are processed, generate the final quiz
+  await ensureFinalQuizReady(segments, { cacheAfter: true });
 }
+
 
 function autoShowSegmentQuiz(index) {
   const segment = videoSegments[index];
