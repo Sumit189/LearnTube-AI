@@ -15,7 +15,9 @@ Recent studies reinforce the importance of interactivity in video-based learning
 
 - **McGill et al. (2015)** demonstrated that active learning through video quizzes and interactive annotations improves student engagement and knowledge retention in engineering and technical subjects. [Active learning in video lectures](https://ieeexplore.ieee.org/document/7122326)
 
-These findings highlight a clear gap. YouTube is home to millions of high-quality educational videos, but it lacks the mechanisms that make structured learning platforms so effective. I wondered if we could bring that same accountability to any YouTube video, such as Khan Academy, MIT lectures, or 3Blue1Brown, without requiring creators to manually add quizzes. When Chrome announced built-in AI capabilities, I realized it could finally be done entirely client-side, with no servers, no API keys, and complete privacy.
+These findings highlight a clear gap. YouTube is home to millions of high-quality educational videos, but it lacks the mechanisms that make structured learning platforms so effective. 
+
+I wondered if we could bring that same accountability to any YouTube video, such as Khan Academy, MIT lectures, or 3Blue1Brown, without requiring creators to manually add quizzes. When Chrome announced built-in AI capabilities, I realized it could finally be done entirely client-side, with no servers, no API keys, and complete privacy.
 
 ## What It Is
 
