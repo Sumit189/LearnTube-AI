@@ -7,10 +7,15 @@ A Chrome extension that transforms passive YouTube watching into active learning
 We've all been there: watching a 45-minute educational YouTube video only to realize halfway through that our mind has completely wandered. Passive watching is easy, but retention is hard. Platforms like Coursera show that active learning with quizzes dramatically improves knowledge retention, but that model only works for structured courses.
 
 Recent studies reinforce the importance of interactivity in video-based learning.
-**Chan et al. (2025)** found that embedding low-stakes quizzes within instructional videos significantly boosts learner attention and comprehension by forcing active retrieval. ([In-lecture quizzes improve online learning for university and community college students](https://pubmed.ncbi.nlm.nih.gov/40175612/))  
-**McGill et al. (2015)** demonstrated that active learning through video quizzes and interactive annotations improves student engagement and knowledge retention in engineering and technical subjects. ([Active learning in video lectures](https://ieeexplore.ieee.org/document/7122326))
+Recent studies reinforce the importance of interactivity in video-based learning.
 
-These findings highlight a clear gap. YouTube is home to millions of high-quality educational videos, but it lacks the mechanisms that make structured learning platforms so effective. LearnTube AI brings that same accountability to any YouTube video—Khan Academy, MIT lectures, 3Blue1Brown, and more—without requiring creators to manually add quizzes. With Chrome's built-in AI capabilities, it all runs client-side with no servers, no API keys, and complete privacy.
+- **Chan et al. (2025)** found that embedding low-stakes quizzes within instructional videos significantly boosts learner attention and comprehension by forcing active retrieval. [In-lecture quizzes improve online learning for university and community college students](https://pubmed.ncbi.nlm.nih.gov/40175612/)
+
+- **Haerawan et al. (2024)** provided empirical evidence supporting the efficacy of in-video quizzes in enhancing student engagement and learning outcomes. Conducted with 200 undergraduate students across various disciplines, the study compared interactive videos (incorporating quizzes, clickable hotspots, and branching scenarios) with traditional video lectures over a 6-week online course. The findings revealed that the interactive video group exhibited a 45% higher interaction rate and 30% longer viewing time compared to the control group. Furthermore, the experimental group demonstrated a 25% improvement in post-test scores, indicating enhanced knowledge retention and understanding. [The Effectiveness of Interactive Videos in Increasing Student Engagement in Online Learning](https://www.researchgate.net/publication/390440650_The_Effectiveness_of_Interactive_Videos_in_Increasing_Student_Engagement_in_Online_Learning)
+
+- **McGill et al. (2015)** demonstrated that active learning through video quizzes and interactive annotations improves student engagement and knowledge retention in engineering and technical subjects. [Active learning in video lectures](https://ieeexplore.ieee.org/document/7122326)
+
+These findings highlight a clear gap. YouTube is home to millions of high-quality educational videos, but it lacks the mechanisms that make structured learning platforms so effective. I wondered if we could bring that same accountability to any YouTube video, such as Khan Academy, MIT lectures, or 3Blue1Brown, without requiring creators to manually add quizzes. When Chrome announced built-in AI capabilities, I realized it could finally be done entirely client-side, with no servers, no API keys, and complete privacy.
 
 ## What It Is
 
