@@ -2,6 +2,16 @@
 
 A Chrome extension that transforms passive YouTube watching into active learning by generating AI-powered quizzes during videos. Think of it like Coursera's quiz system, but automatically applied to any educational YouTube video you watch.
 
+
+## Research Inspiration
+We've all been there: watching a 45-minute educational YouTube video only to realize halfway through that our mind has completely wandered. Passive watching is easy, but retention is hard. Platforms like Coursera show that active learning with quizzes dramatically improves knowledge retention, but that model only works for structured courses.
+
+Recent studies reinforce the importance of interactivity in video-based learning.
+**Chan et al. (2025)** found that embedding low-stakes quizzes within instructional videos significantly boosts learner attention and comprehension by forcing active retrieval. ([In-lecture quizzes improve online learning for university and community college students](https://pubmed.ncbi.nlm.nih.gov/40175612/))  
+**McGill et al. (2015)** demonstrated that active learning through video quizzes and interactive annotations improves student engagement and knowledge retention in engineering and technical subjects. ([Active learning in video lectures](https://ieeexplore.ieee.org/document/7122326))
+
+These findings highlight a clear gap. YouTube is home to millions of high-quality educational videos, but it lacks the mechanisms that make structured learning platforms so effective. LearnTube AI brings that same accountability to any YouTube video—Khan Academy, MIT lectures, 3Blue1Brown, and more—without requiring creators to manually add quizzes. With Chrome's built-in AI capabilities, it all runs client-side with no servers, no API keys, and complete privacy.
+
 ## What It Is
 
 LearnTube AI is a Chrome extension that uses Chrome's built-in Gemini Nano AI (no external API keys required) to analyze video transcripts and generate contextual quiz questions. The extension pauses videos at natural topic transitions to quiz you on what you just learned, then gives you a comprehensive final quiz when the video ends.
