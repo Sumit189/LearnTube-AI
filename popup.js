@@ -4,7 +4,8 @@ let settings = {
   questionCount: 1,
   finalQuizEnabled: true,
   soundEnabled: true,
-  theme: 'dark'
+  theme: 'dark',
+  analyticsEnabled: true
 };
 
 const STATUS_LABELS = {
@@ -363,6 +364,11 @@ function updateUI() {
   document.getElementById('questionCount').value = settings.questionCount;
   document.getElementById('themeSelect').value = settings.theme || 'dark';
   applyTheme(settings.theme || 'dark');
+
+  const analyticsToggle = document.getElementById('analyticsToggle');
+  if (analyticsToggle) {
+    analyticsToggle.checked = settings.analyticsEnabled !== false;
+  }
 }
 
 function applyTheme(theme) {
@@ -435,6 +441,14 @@ document.getElementById('finalQuizToggle').addEventListener('change', (e) => {
   settings.finalQuizEnabled = e.target.checked;
   saveSettings();
 });
+
+const analyticsToggleEl = document.getElementById('analyticsToggle');
+if (analyticsToggleEl) {
+  analyticsToggleEl.addEventListener('change', (e) => {
+    settings.analyticsEnabled = e.target.checked;
+    saveSettings();
+  });
+}
 
 document.getElementById('questionCount').addEventListener('change', (e) => {
   settings.questionCount = parseInt(e.target.value);

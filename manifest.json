@@ -9,7 +9,8 @@
     "scripting"
   ],
   "host_permissions": [
-    "https://www.youtube.com/*"
+    "https://www.youtube.com/*",
+    "https://learntubeai-analytics.sumit-18-paul.workers.dev/*"
   ],
   "background": {
     "service_worker": "background.js"

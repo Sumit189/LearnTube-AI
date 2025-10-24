@@ -1,19 +1,106 @@
-chrome.runtime.onInstalled.addListener(async () => {
+const ANALYTICS_CONFIG = {
+  ENDPOINT: 'https://learntubeai-analytics.sumit-18-paul.workers.dev',
+  CLIENT_ID_KEY: 'learntube_analytics_client_id'
+};
+
+let analyticsSequence = 0;
+
+async function getStoredSettings() {
+  const result = await chrome.storage.local.get('learntube_settings');
+  return result.learntube_settings || {};
+}
+
+async function isAnalyticsEnabled() {
+  try {
+    const settings = await getStoredSettings();
+    return settings.analyticsEnabled !== false;
+  } catch (error) {
+    console.warn('LearnTube: Analytics preference unavailable:', error);
+    return false;
+  }
+}
+
+async function getAnalyticsClientId() {
+  const stored = await chrome.storage.local.get(ANALYTICS_CONFIG.CLIENT_ID_KEY);
+  let clientId = stored?.[ANALYTICS_CONFIG.CLIENT_ID_KEY];
+  if (!clientId) {
+    try {
+      clientId = crypto.randomUUID();
+    } catch {
+      clientId = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    }
+    await chrome.storage.local.set({ [ANALYTICS_CONFIG.CLIENT_ID_KEY]: clientId });
+  }
+  return clientId;
+}
+
+async function sendAnalyticsEvent(eventName, params = {}, options = {}) {
+  const { force = false } = options;
+  if (!ANALYTICS_CONFIG.ENDPOINT || !eventName) {
+    return;
+  }
+
+  let allowed = force;
+  if (!allowed) {
+    allowed = await isAnalyticsEnabled();
+  }
+  if (!allowed) {
+    return;
+  }
+
+  try {
+    const clientId = await getAnalyticsClientId();
+    analyticsSequence += 1;
+
+    const body = {
+      client_id: clientId,
+      events: [
+        {
+          name: eventName,
+          params: {
+            ...params,
+            app_platform: 'chrome_extension',
+            engagement_time_msec: 1,
+            hit_sequence: analyticsSequence
+          }
+        }
+      ]
+    };
+
+    await fetch(ANALYTICS_CONFIG.ENDPOINT, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      keepalive: true
+    });
+  } catch (error) {
+    console.warn('LearnTube: Analytics event failed:', error);
+  }
+}
+
+chrome.runtime.onInstalled.addListener(async (details) => {
   const result = await chrome.storage.local.get('learntube_settings');
   const existingSettings = result.learntube_settings || {};
-  
+
   const defaultSettings = {
     enabled: true,
     autoQuiz: true,
     questionCount: 1,
     finalQuizEnabled: true,
     soundEnabled: true,
-    theme: 'dark'
+    theme: 'dark',
+    analyticsEnabled: true
   };
-  
-  chrome.storage.local.set({
+
+  await chrome.storage.local.set({
     learntube_settings: { ...defaultSettings, ...existingSettings }
   });
+
+  if (details.reason === 'install') {
+    await sendAnalyticsEvent('user_install', { source: 'extension_install' }, { force: true });
+  } else if (details.reason === 'update') {
+    await sendAnalyticsEvent('user_update', { source: 'extension_update' }, { force: true });
+  }
 });
 
 
@@ -38,9 +125,36 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
   
   if (message.type === 'UPDATE_SETTINGS') {
-    chrome.storage.local.set({ learntube_settings: message.settings }).then(() => {
-      sendResponse({ success: true });
-    });
+    (async () => {
+      try {
+        const previousSettings = await getStoredSettings();
+        await chrome.storage.local.set({ learntube_settings: message.settings });
+        sendResponse({ success: true });
+
+        const prevEnabled = previousSettings.analyticsEnabled !== false;
+        const nextEnabled = message.settings.analyticsEnabled !== false;
+        if (prevEnabled !== nextEnabled) {
+          const eventName = nextEnabled ? 'analytics_opt_in' : 'analytics_opt_out';
+          await sendAnalyticsEvent(eventName, { source: 'popup_toggle' }, { force: true });
+        }
+      } catch (error) {
+        console.error('LearnTube: Error updating settings:', error);
+        sendResponse({ success: false, error: error?.message });
+      }
+    })();
+    return true;
+  }
+
+  if (message.type === 'TRACK_ANALYTICS') {
+    (async () => {
+      try {
+        await sendAnalyticsEvent(message.event, message.params || {});
+        sendResponse({ success: true });
+      } catch (error) {
+        console.warn('LearnTube: Failed to enqueue analytics event:', error);
+        sendResponse({ success: false, error: error?.message });
+      }
+    })();
     return true;
   }
   

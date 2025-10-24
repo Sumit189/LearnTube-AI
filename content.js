@@ -11,7 +11,7 @@ let pendingSegmentTriggers = new Set();
 let seekbarObserver = null;
 let indicatorsAllowed = false;
 let indicatorsAdded = false;
-const DEFAULT_USER_SETTINGS = { questionCount: 1, autoQuiz: true, finalQuizEnabled: true, enabled: true, theme: 'dark' };
+const DEFAULT_USER_SETTINGS = { questionCount: 1, autoQuiz: true, finalQuizEnabled: true, enabled: true, theme: 'dark', analyticsEnabled: true };
 let userSettings = { ...DEFAULT_USER_SETTINGS };
 let finalQuizQuestions = null;
 let finalQuizGenerating = false;
@@ -21,6 +21,44 @@ let monitorCleanup = null;
 let modelsInitialized = false;
 let modelsInitializing = false;
 let lastClearedVideoId = null;
+
+const ANALYTICS_LAST_ACTIVE_KEY = 'learntube_analytics_last_active';
+
+function trackAnalyticsEvent(eventName, params = {}) {
+  if (!eventName) {
+    return;
+  }
+  if (userSettings.analyticsEnabled === false) {
+    return;
+  }
+  try {
+    chrome.runtime.sendMessage({
+      type: 'TRACK_ANALYTICS',
+      event: eventName,
+      params
+    }).catch(() => {});
+  } catch (error) {
+    console.warn('LearnTube: Unable to send analytics event:', error);
+  }
+}
+
+async function pingDailyAnalytics() {
+  if (userSettings.analyticsEnabled === false) {
+    return;
+  }
+  try {
+    const today = new Date();
+    const key = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+    const stored = await chrome.storage.local.get(ANALYTICS_LAST_ACTIVE_KEY);
+    if (stored?.[ANALYTICS_LAST_ACTIVE_KEY] === key) {
+      return;
+    }
+    await chrome.storage.local.set({ [ANALYTICS_LAST_ACTIVE_KEY]: key });
+    trackAnalyticsEvent('extension_active', { cadence: 'daily' });
+  } catch (error) {
+    console.warn('LearnTube: Daily analytics ping skipped:', error);
+  }
+}
 
 const CACHE_CONFIG = {
   LIMIT: 10,
@@ -312,6 +350,10 @@ async function ensureFinalQuizReady(segments, options = {}) {
 
       finalQuizQuestions = generated;
       await markFinalStatus('completed', generated.length, '');
+      trackAnalyticsEvent('quiz_generated', {
+        quiz_type: 'final',
+        question_count: generated.length
+      });
 
       if (videoId && cacheAfter) {
         await cacheAllQuizzes(videoId, videoSegments);
@@ -662,6 +704,10 @@ async function handleSegmentGeneration(segment, index) {
     segment.status = 'completed';
     segment.errorMessage = '';
     await markSegmentStatus(index, 'completed', questions.length, '');
+    trackAnalyticsEvent('quiz_generated', {
+      quiz_type: 'segment',
+      question_count: questions.length
+    });
     updateSeekbarIndicator(index);
     addIndicatorForSegment(index);
     if (pendingSegmentTriggers.has(index)) {
@@ -2427,6 +2473,7 @@ function startIndicatorMonitoring() {
 async function init() {
   // Load settings first
   await loadUserSettings();
+  await pingDailyAnalytics();
   
   // Check if extension is enabled
   if (!userSettings.enabled) {
@@ -2597,6 +2644,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   if (message.action === 'updateSettings') {
     loadUserSettings().then(async () => {
+      await pingDailyAnalytics();
       if (!userSettings.enabled) {
         console.log('LearnTube: Extension disabled, cleaning up');
         removeOverlay();
