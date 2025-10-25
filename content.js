@@ -3550,3 +3550,1056 @@ const observer = new MutationObserver(() => {
 });
 
 observer.observe(document.body, { childList: true, subtree: true });
+
+// ============================================================================
+// LIVE CHAT FEATURE - Ctrl+Shift+L
+// ============================================================================
+
+let chatActive = false;
+let chatSession = null;
+let chatHistory = [];
+
+// Keyboard shortcut handler for Ctrl+Shift+L
+document.addEventListener('keydown', (e) => {
+  if (e.ctrlKey && e.shiftKey && e.key === 'L') {
+    e.preventDefault();
+    handleLiveChatTrigger();
+  }
+});
+
+async function handleLiveChatTrigger() {
+  if (chatActive || quizActive) {
+    console.log('LearnTube: Chat already active or quiz in progress');
+    return;
+  }
+
+  if (!videoElement) {
+    videoElement = document.querySelector('video');
+    if (!videoElement) {
+      console.log('LearnTube: No video element found');
+      return;
+    }
+  }
+
+  if (!userSettings.enabled) {
+    console.log('LearnTube: Extension disabled');
+    return;
+  }
+
+  try {
+    // Track analytics event
+    trackAnalyticsEvent('live_chat_triggered', {
+      video_id_hash: videoId ? await getHashedVideoId(videoId) : null,
+      current_time: Math.round(videoElement.currentTime),
+      ai_provider: userSettings.aiProvider
+    });
+
+    // Pause video
+    if (!videoElement.paused) {
+      videoElement.pause();
+    }
+
+    // Capture current frame
+    const capturedFrame = await captureVideoFrame();
+    
+    // Extract transcript up to current time
+    const currentTranscript = await extractTranscriptUpToTime(videoElement.currentTime);
+    
+    // Show chat overlay
+    showChatOverlay(capturedFrame, currentTranscript);
+    
+  } catch (error) {
+    console.error('LearnTube: Failed to initialize live chat:', error);
+    // Show error message to user
+    showChatError('Failed to initialize chat. Please try again.');
+  }
+}
+
+async function captureVideoFrame() {
+  try {
+    // Get the video element
+    const video = videoElement || document.querySelector('video');
+    if (!video) {
+      throw new Error('Video element not found');
+    }
+
+    // Create a canvas to capture the video frame
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    
+    // Set canvas dimensions to match video
+    canvas.width = video.videoWidth || video.clientWidth;
+    canvas.height = video.videoHeight || video.clientHeight;
+    
+    // Draw the current video frame to canvas
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    
+    // Convert to base64 data URL
+    const dataURL = canvas.toDataURL('image/jpeg', 0.8);
+    
+    return dataURL;
+  } catch (error) {
+    console.error('LearnTube: Failed to capture video frame:', error);
+    throw error;
+  }
+}
+
+async function extractTranscriptUpToTime(currentTime) {
+  try {
+    if (!transcriptData || !Array.isArray(transcriptData)) {
+      return 'No transcript available for this video.';
+    }
+
+    // Filter transcript segments up to current time
+    const relevantSegments = transcriptData.filter(segment => 
+      segment.start <= currentTime
+    );
+
+    if (relevantSegments.length === 0) {
+      return 'No transcript content available up to this point.';
+    }
+
+    // Combine transcript text
+    let transcriptText = relevantSegments
+      .map(segment => segment.text || '')
+      .join(' ')
+      .trim();
+
+    // Handle long transcripts with summarization
+    if (transcriptText.length > 2000) {
+      transcriptText = await summarizeTranscriptForChat(transcriptText);
+    }
+
+    return transcriptText;
+  } catch (error) {
+    console.error('LearnTube: Failed to extract transcript:', error);
+    return 'Error extracting transcript.';
+  }
+}
+
+async function summarizeTranscriptForChat(transcriptText) {
+  try {
+    if (userSettings.aiProvider === 'gemini-api') {
+      return await summarizeTranscriptWithAPI(transcriptText);
+    } else {
+      return await summarizeTranscript(transcriptText);
+    }
+  } catch (error) {
+    console.error('LearnTube: Failed to summarize transcript for chat:', error);
+    // Fallback to truncation
+    return transcriptText.substring(0, 2000) + '...';
+  }
+}
+
+async function showChatOverlay(capturedFrame, transcriptText) {
+  chatActive = true;
+  
+  const isLight = userSettings.theme === 'light';
+  
+  const cardBg = isLight ? '#ffffff' : '#0f0f0f';
+  const cardBorder = isLight ? '#e0e0e0' : 'rgba(255, 255, 255, 0.08)';
+  const cardColor = isLight ? '#1a1a1a' : '#f1f1f1';
+  const headerBorder = isLight ? '#e0e0e0' : 'rgba(255, 255, 255, 0.08)';
+  const titleColor = isLight ? '#1a1a1a' : '#f1f1f1';
+  const subtitleColor = isLight ? '#666666' : '#aaaaaa';
+  const closeColor = isLight ? '#666666' : '#94a3b8';
+  const closeHoverBg = isLight ? 'rgba(0, 0, 0, 0.05)' : 'rgba(255, 255, 255, 0.05)';
+  const closeHoverColor = isLight ? '#1a1a1a' : '#f8fafc';
+  const inputBg = isLight ? '#f5f5f5' : '#111111';
+  const inputBorder = isLight ? '#e0e0e0' : 'rgba(255, 255, 255, 0.1)';
+  const inputColor = isLight ? '#1a1a1a' : '#f1f1f1';
+  const buttonBg = isLight ? '#0154d4' : '#2563eb';
+  const buttonHoverBg = isLight ? '#0141a3' : '#1d4ed8';
+  const messageBg = isLight ? '#f8f9fa' : '#1a1a1a';
+  const messageBorder = isLight ? '#e9ecef' : 'rgba(255, 255, 255, 0.1)';
+  const boxShadow = isLight ? '0 8px 24px rgba(0,0,0,0.15)' : '0 8px 24px rgba(0,0,0,0.4)';
+
+  createOverlay(`
+    <div class="learntube-chat-card">
+      <div class="learntube-chat-header">
+        <div class="learntube-chat-icon">💬</div>
+        <div class="learntube-chat-title">
+          <h2>Live Chat</h2>
+          <p class="learntube-chat-subtitle">Ask questions about the current video content</p>
+        </div>
+        <button class="learntube-chat-close">×</button>
+      </div>
+      
+      <div class="learntube-chat-messages" id="chatMessages">
+        <div class="learntube-chat-welcome">
+          <div class="welcome-icon">🤖</div>
+          <div class="welcome-text">
+            <p>I can see the current video frame and transcript up to this point.</p>
+            <p>Ask me anything about what you're learning!</p>
+          </div>
+        </div>
+        <div class="learntube-chat-suggestions" id="chatSuggestions">
+          <div class="suggestions-title">Try asking:</div>
+          <div class="suggestion-buttons">
+            <button class="suggestion-btn" data-suggestion="What is the main concept being explained here?">What is the main concept being explained here?</button>
+            <button class="suggestion-btn" data-suggestion="Can you explain this step by step?">Can you explain this step by step?</button>
+            <button class="suggestion-btn" data-suggestion="What should I focus on in this part?">What should I focus on in this part?</button>
+            <button class="suggestion-btn" data-suggestion="How does this relate to what was said earlier?">How does this relate to what was said earlier?</button>
+          </div>
+        </div>
+      </div>
+      
+      <div class="learntube-chat-input-container">
+        <div class="learntube-chat-input-wrapper">
+          <input type="text" id="chatInput" placeholder="Ask a question about the video..." />
+          <button id="chatSendBtn" class="learntube-chat-send-btn">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="22" y1="2" x2="11" y2="13"></line>
+              <polygon points="22,2 15,22 11,13 2,9"></polygon>
+            </svg>
+          </button>
+        </div>
+        <div class="learntube-chat-context">
+          <span class="context-label">Context:</span>
+          <span class="context-text">Video frame + transcript up to ${Math.round(videoElement.currentTime)}s</span>
+        </div>
+      </div>
+    </div>
+    
+    <style>
+      .learntube-chat-card {
+        background: ${cardBg};
+        border: 1px solid ${cardBorder};
+        border-radius: 12px;
+        padding: 24px;
+        max-width: 600px;
+        width: 90%;
+        max-height: 80vh;
+        display: flex;
+        flex-direction: column;
+        color: ${cardColor};
+        position: relative;
+        z-index: 1000000;
+        animation: slideUp 0.3s ease;
+        box-shadow: ${boxShadow};
+      }
+      
+      .learntube-chat-header {
+        display: flex;
+        align-items: center;
+        margin-bottom: 20px;
+        padding-bottom: 16px;
+        border-bottom: 1px solid ${headerBorder};
+      }
+      
+      .learntube-chat-icon {
+        font-size: 24px;
+        margin-right: 12px;
+      }
+      
+      .learntube-chat-title h2 {
+        margin: 0;
+        font-size: 18px;
+        font-weight: 600;
+        color: ${titleColor};
+      }
+      
+      .learntube-chat-subtitle {
+        margin: 4px 0 0 0;
+        font-size: 14px;
+        color: ${subtitleColor};
+      }
+      
+      .learntube-chat-close {
+        margin-left: auto;
+        background: none;
+        border: none;
+        font-size: 24px;
+        color: ${closeColor};
+        cursor: pointer;
+        padding: 4px;
+        border-radius: 4px;
+        transition: all 0.2s ease;
+      }
+      
+      .learntube-chat-close:hover {
+        background: ${closeHoverBg};
+        color: ${closeHoverColor};
+      }
+      
+      .learntube-chat-messages {
+        flex: 1;
+        overflow-y: auto;
+        margin-bottom: 20px;
+        max-height: 400px;
+        padding-right: 8px;
+      }
+      
+      .learntube-chat-messages::-webkit-scrollbar {
+        width: 6px;
+      }
+      
+      .learntube-chat-messages::-webkit-scrollbar-track {
+        background: transparent;
+      }
+      
+      .learntube-chat-messages::-webkit-scrollbar-thumb {
+        background: ${isLight ? 'rgba(0,0,0,0.2)' : 'rgba(255,255,255,0.2)'};
+        border-radius: 3px;
+      }
+      
+      .learntube-chat-welcome {
+        display: flex;
+        align-items: flex-start;
+        gap: 12px;
+        padding: 16px;
+        background: ${messageBg};
+        border: 1px solid ${messageBorder};
+        border-radius: 8px;
+        margin-bottom: 16px;
+      }
+      
+      .welcome-icon {
+        font-size: 20px;
+        flex-shrink: 0;
+      }
+      
+      .welcome-text p {
+        margin: 0 0 8px 0;
+        font-size: 14px;
+        line-height: 1.4;
+      }
+      
+      .welcome-text p:last-child {
+        margin-bottom: 0;
+      }
+      
+      .learntube-chat-suggestions {
+        margin-top: 16px;
+        padding: 16px;
+        background: ${messageBg};
+        border: 1px solid ${messageBorder};
+        border-radius: 8px;
+      }
+      
+      .suggestions-title {
+        font-size: 14px;
+        font-weight: 500;
+        color: ${subtitleColor};
+        margin-bottom: 12px;
+      }
+      
+      .suggestion-buttons {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+      
+      .suggestion-btn {
+        background: ${inputBg};
+        border: 1px solid ${inputBorder};
+        border-radius: 6px;
+        padding: 8px 12px;
+        color: ${inputColor};
+        font-size: 13px;
+        text-align: left;
+        cursor: pointer;
+        transition: all 0.2s ease;
+      }
+      
+      .suggestion-btn:hover {
+        background: ${buttonBg};
+        color: white;
+        border-color: ${buttonBg};
+      }
+      
+      .learntube-chat-message {
+        margin-bottom: 12px;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+      
+      .message-user {
+        align-self: flex-end;
+        background: ${buttonBg};
+        color: white;
+        padding: 12px 16px;
+        border-radius: 18px 18px 4px 18px;
+        max-width: 80%;
+        word-wrap: break-word;
+      }
+      
+      .message-ai {
+        align-self: flex-start;
+        background: ${messageBg};
+        color: ${cardColor};
+        padding: 12px 16px;
+        border: 1px solid ${messageBorder};
+        border-radius: 18px 18px 18px 4px;
+        max-width: 80%;
+        word-wrap: break-word;
+      }
+      
+      .learntube-chat-input-container {
+        border-top: 1px solid ${headerBorder};
+        padding-top: 16px;
+      }
+      
+      .learntube-chat-input-wrapper {
+        display: flex;
+        gap: 8px;
+        margin-bottom: 8px;
+      }
+      
+      #chatInput {
+        flex: 1;
+        background: ${inputBg};
+        border: 1px solid ${inputBorder};
+        border-radius: 8px;
+        padding: 12px 16px;
+        color: ${inputColor};
+        font-size: 14px;
+        outline: none;
+        transition: border-color 0.2s ease;
+      }
+      
+      #chatInput:focus {
+        border-color: ${buttonBg};
+      }
+      
+      .learntube-chat-send-btn {
+        background: ${buttonBg};
+        border: none;
+        border-radius: 8px;
+        padding: 12px;
+        color: white;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: background-color 0.2s ease;
+        min-width: 44px;
+      }
+      
+      .learntube-chat-send-btn:hover {
+        background: ${buttonHoverBg};
+      }
+      
+      .learntube-chat-send-btn:disabled {
+        background: ${isLight ? '#ccc' : '#666'};
+        cursor: not-allowed;
+      }
+      
+      .learntube-chat-context {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 12px;
+        color: ${subtitleColor};
+      }
+      
+      .context-label {
+        font-weight: 500;
+      }
+      
+      .context-text {
+        opacity: 0.8;
+      }
+      
+      @keyframes slideUp {
+        from {
+          opacity: 0;
+          transform: translateY(20px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+      
+      .message-typing {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        color: ${subtitleColor};
+        font-style: italic;
+      }
+      
+      .typing-dots {
+        display: flex;
+        gap: 4px;
+      }
+      
+      .typing-dot {
+        width: 6px;
+        height: 6px;
+        background: ${subtitleColor};
+        border-radius: 50%;
+        animation: typing 1.4s infinite ease-in-out;
+      }
+      
+      .typing-dot:nth-child(2) {
+        animation-delay: 0.2s;
+      }
+      
+      .typing-dot:nth-child(3) {
+        animation-delay: 0.4s;
+      }
+      
+      @keyframes typing {
+        0%, 60%, 100% {
+          transform: translateY(0);
+          opacity: 0.4;
+        }
+        30% {
+          transform: translateY(-10px);
+          opacity: 1;
+        }
+      }
+    </style>
+  `);
+
+  // Initialize chat functionality
+  await initializeChatInterface(capturedFrame, transcriptText);
+}
+
+async function initializeChatInterface(capturedFrame, transcriptText) {
+  const chatInput = document.getElementById('chatInput');
+  const chatSendBtn = document.getElementById('chatSendBtn');
+  const chatMessages = document.getElementById('chatMessages');
+  const closeBtn = document.querySelector('.learntube-chat-close');
+
+  // Store context for chat
+  chatSession = {
+    capturedFrame,
+    transcriptText,
+    messages: []
+  };
+
+  // Check if multimodal is supported to determine UI flow
+  const isMultimodalSupported = await checkMultimodalSupport();
+  
+  if (isMultimodalSupported) {
+    // Hide welcome message and suggestions since we're showing image and bot message
+    const welcomeDiv = document.querySelector('.learntube-chat-welcome');
+    const suggestionsDiv = document.getElementById('chatSuggestions');
+    if (welcomeDiv) welcomeDiv.style.display = 'none';
+    if (suggestionsDiv) suggestionsDiv.style.display = 'none';
+
+    // Add the captured image as a user message
+    addImageMessageToChat(capturedFrame);
+    
+    // Add automatic bot welcome message
+    setTimeout(() => {
+      addMessageToChat('ai', 'How can I help you with this?');
+    }, 500);
+  } else {
+    // Keep welcome message and suggestions for text-only mode
+    // Add contextual bot message about video content
+    setTimeout(() => {
+      addMessageToChat('ai', `I can help you understand what's happening in this video up to ${Math.round(videoElement.currentTime)}s. What would you like to know?`);
+    }, 500);
+  }
+
+  // Send message handler
+  const sendMessage = async () => {
+    const message = chatInput.value.trim();
+    if (!message) return;
+
+    // Add user message to chat
+    addMessageToChat('user', message);
+    chatInput.value = '';
+    chatSendBtn.disabled = true;
+
+    // Hide suggestions after first message
+    const suggestionsDiv = document.getElementById('chatSuggestions');
+    if (suggestionsDiv) {
+      suggestionsDiv.style.display = 'none';
+    }
+
+    // Show typing indicator
+    const typingId = addTypingIndicator();
+
+    try {
+      // Track chat message sent
+      trackAnalyticsEvent('live_chat_message_sent', {
+        video_id_hash: videoId ? await getHashedVideoId(videoId) : null,
+        message_length: message.length,
+        ai_provider: userSettings.aiProvider
+      });
+
+      // Get AI response
+      const response = await getChatResponse(message, capturedFrame, transcriptText);
+      
+      // Remove typing indicator
+      removeTypingIndicator(typingId);
+      
+      // Add AI response to chat
+      addMessageToChat('ai', response);
+
+      // Track successful response
+      trackAnalyticsEvent('live_chat_response_received', {
+        video_id_hash: videoId ? await getHashedVideoId(videoId) : null,
+        response_length: response.length,
+        ai_provider: userSettings.aiProvider
+      });
+      
+    } catch (error) {
+      console.error('LearnTube: Chat response failed:', error);
+      removeTypingIndicator(typingId);
+      addMessageToChat('ai', 'Sorry, I encountered an error. Please try again.');
+
+      // Track error
+      trackAnalyticsEvent('live_chat_error', {
+        video_id_hash: videoId ? await getHashedVideoId(videoId) : null,
+        error_message: error.message,
+        ai_provider: userSettings.aiProvider
+      });
+    } finally {
+      chatSendBtn.disabled = false;
+      chatInput.focus();
+    }
+  };
+
+  // Event listeners
+  chatSendBtn.addEventListener('click', sendMessage);
+  chatInput.addEventListener('keypress', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      sendMessage();
+    }
+  });
+
+  closeBtn.addEventListener('click', () => {
+    closeChat();
+  });
+
+  // Add suggestion button handlers
+  const suggestionButtons = document.querySelectorAll('.suggestion-btn');
+  suggestionButtons.forEach(btn => {
+    btn.addEventListener('click', () => {
+      const suggestion = btn.getAttribute('data-suggestion');
+      chatInput.value = suggestion;
+      chatInput.focus();
+      // Hide suggestions after selection
+      const suggestionsDiv = document.getElementById('chatSuggestions');
+      if (suggestionsDiv) {
+        suggestionsDiv.style.display = 'none';
+      }
+    });
+  });
+
+  // Focus input
+  chatInput.focus();
+}
+
+function addMessageToChat(sender, message) {
+  const chatMessages = document.getElementById('chatMessages');
+  const messageDiv = document.createElement('div');
+  messageDiv.className = `learntube-chat-message`;
+  
+  const messageContent = document.createElement('div');
+  messageContent.className = `message-${sender}`;
+  messageContent.textContent = message;
+  
+  messageDiv.appendChild(messageContent);
+  chatMessages.appendChild(messageDiv);
+  
+  // Scroll to bottom
+  chatMessages.scrollTop = chatMessages.scrollHeight;
+  
+  // Store in session
+  if (chatSession) {
+    chatSession.messages.push({ sender, message });
+  }
+}
+
+async function checkMultimodalSupport() {
+  try {
+    if (typeof LanguageModel === 'undefined') {
+      return false;
+    }
+    
+    const multimodalAvailability = await LanguageModel.availability({
+      expectedInputs: [{ type: 'image' }]
+    });
+    
+    console.log('LearnTube: Multimodal availability check:', multimodalAvailability);
+    return multimodalAvailability === 'available';
+  } catch (error) {
+    console.log('LearnTube: Multimodal check failed:', error);
+    return false;
+  }
+}
+
+function addImageMessageToChat(imageDataURL) {
+  const chatMessages = document.getElementById('chatMessages');
+  const messageDiv = document.createElement('div');
+  messageDiv.className = `learntube-chat-message`;
+  
+  const messageContent = document.createElement('div');
+  messageContent.className = `message-user`;
+  
+  // Create image element
+  const imageElement = document.createElement('img');
+  
+  // Add error handling for broken images
+  imageElement.onerror = function() {
+    console.error('LearnTube: Failed to load captured video frame image');
+    imageElement.style.display = 'none';
+    
+    // Show fallback text
+    const fallbackText = document.createElement('div');
+    fallbackText.textContent = '📷 Video frame captured';
+    fallbackText.style.cssText = `
+      padding: 20px;
+      background: rgba(255, 255, 255, 0.1);
+      border-radius: 8px;
+      text-align: center;
+      color: rgba(255, 255, 255, 0.7);
+      font-size: 14px;
+    `;
+    messageContent.appendChild(fallbackText);
+  };
+  
+  imageElement.onload = function() {
+    console.log('LearnTube: Video frame image loaded successfully');
+  };
+  
+  imageElement.src = imageDataURL;
+  imageElement.style.cssText = `
+    max-width: 200px;
+    max-height: 150px;
+    border-radius: 8px;
+    object-fit: cover;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+  `;
+  
+  // Create caption
+  const caption = document.createElement('div');
+  caption.textContent = 'Current video frame';
+  caption.style.cssText = `
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.7);
+    margin-top: 4px;
+    text-align: center;
+  `;
+  
+  messageContent.appendChild(imageElement);
+  messageContent.appendChild(caption);
+  messageDiv.appendChild(messageContent);
+  chatMessages.appendChild(messageDiv);
+  
+  // Scroll to bottom
+  chatMessages.scrollTop = chatMessages.scrollHeight;
+  
+  // Store in session
+  if (chatSession) {
+    chatSession.messages.push({ sender: 'user', message: '[Image: Current video frame]' });
+  }
+}
+
+function addTypingIndicator() {
+  const chatMessages = document.getElementById('chatMessages');
+  const typingDiv = document.createElement('div');
+  typingDiv.className = 'learntube-chat-message';
+  typingDiv.id = 'typing-indicator';
+  
+  const typingContent = document.createElement('div');
+  typingContent.className = 'message-typing';
+  typingContent.innerHTML = `
+    <span>AI is thinking</span>
+    <div class="typing-dots">
+      <div class="typing-dot"></div>
+      <div class="typing-dot"></div>
+      <div class="typing-dot"></div>
+    </div>
+  `;
+  
+  typingDiv.appendChild(typingContent);
+  chatMessages.appendChild(typingDiv);
+  
+  // Scroll to bottom
+  chatMessages.scrollTop = chatMessages.scrollHeight;
+  
+  return 'typing-indicator';
+}
+
+function removeTypingIndicator(typingId) {
+  const typingElement = document.getElementById(typingId);
+  if (typingElement) {
+    typingElement.remove();
+  }
+}
+
+async function getChatResponse(userMessage, capturedFrame, transcriptText) {
+  try {
+    if (userSettings.aiProvider === 'gemini-api') {
+      return await getChatResponseWithAPI(userMessage, capturedFrame, transcriptText);
+    } else {
+      return await getChatResponseOnDevice(userMessage, capturedFrame, transcriptText);
+    }
+  } catch (error) {
+    console.error('LearnTube: Chat response generation failed:', error);
+    throw error;
+  }
+}
+
+async function getChatResponseOnDevice(userMessage, capturedFrame, transcriptText) {
+  if (typeof LanguageModel === 'undefined') {
+    throw new Error('Language Model API unavailable');
+  }
+
+  const availability = await LanguageModel.availability();
+  if (availability !== 'available') {
+    throw new Error(`Language Model not ready (${availability})`);
+  }
+
+  // Check if multimodal is supported (reuse the same check from UI)
+  const isMultimodalSupported = await checkMultimodalSupport();
+  
+  if (!isMultimodalSupported) {
+    console.log('LearnTube: Multimodal not available, using text-only mode');
+    const session = await LanguageModel.create({
+      temperature: 0.7,
+      topK: 40,
+      maxOutputTokens: 300
+    });
+    
+    const textOnlyPrompt = `You are a helpful AI tutor analyzing a YouTube video. The user is asking questions about the current video content.
+
+VIDEO CONTEXT:
+- Current video time: ${Math.round(videoElement.currentTime)}s
+- Video frame captured: A screenshot was taken at this moment (image analysis not available)
+- Transcript up to this point: "${transcriptText}"
+
+USER QUESTION: "${userMessage}"
+
+CRITICAL: Use the transcript as your primary source of information. The transcript contains what's actually being discussed in the video.
+
+Please provide a helpful, educational response that:
+1. Directly addresses the user's question
+2. References specific content from the video transcript (this is your main source of information)
+3. Explains concepts clearly and concisely
+4. Encourages further learning
+5. Acknowledge that you're analyzing the video content based on the transcript and timing
+6. Connect the transcript content with the user's question
+7. If the question is about something visual, suggest what might be shown at this video timestamp
+
+IMPORTANT: The transcript tells you what's happening in the video - use it as your primary source. Keep your response SHORT and CONCISE (2-3 sentences maximum).`;
+
+    const result = await session.prompt(textOnlyPrompt);
+    
+    let aiResponse;
+    if (typeof result === 'string') {
+      aiResponse = result;
+    } else if (result && typeof result === 'object') {
+      aiResponse = result.response || result.text || result.content || result.output || JSON.stringify(result);
+    } else {
+      aiResponse = String(result);
+    }
+
+    return aiResponse.trim();
+  }
+
+  let session = null;
+  try {
+    console.log('LearnTube: Creating multimodal session...');
+    session = await LanguageModel.create({
+      temperature: 0.7,
+      topK: 40,
+      maxOutputTokens: 300,
+      expectedInputs: [{ type: 'image' }]
+    });
+    console.log('LearnTube: Multimodal session created successfully');
+
+      // Convert base64 data URL to File object for the API
+      let imageFile;
+      try {
+        // Convert base64 data URL to blob
+        const base64Data = capturedFrame.split(',')[1];
+        const binaryString = atob(base64Data);
+        const bytes = new Uint8Array(binaryString.length);
+        for (let i = 0; i < binaryString.length; i++) {
+          bytes[i] = binaryString.charCodeAt(i);
+        }
+        const blob = new Blob([bytes], { type: 'image/jpeg' });
+        imageFile = new File([blob], 'video-frame.jpg', { type: 'image/jpeg' });
+        console.log('LearnTube: Successfully converted image for on-device AI:', imageFile.size, 'bytes');
+        console.log('LearnTube: Image file type:', imageFile.type);
+        console.log('LearnTube: Image file name:', imageFile.name);
+      } catch (error) {
+        console.warn('LearnTube: Failed to convert image for on-device AI, using text-only mode:', error);
+        throw error; // This will trigger the fallback below
+      }
+
+      const prompt = `You are a helpful AI tutor analyzing a YouTube video. The user is asking questions about the current video content.
+
+VIDEO CONTEXT:
+- Current video frame: [Image captured at ${Math.round(videoElement.currentTime)}s - Analyze the visual content in the image]
+- Transcript up to this point: "${transcriptText}"
+
+USER QUESTION: "${userMessage}"
+
+CRITICAL: You must analyze BOTH the image AND the transcript together. Do not rely only on the image - the transcript contains the actual content being discussed in the video.
+
+Please provide a helpful, educational response that:
+1. Directly addresses the user's question
+2. Combines what you see in the image with what's being discussed in the transcript
+3. References specific content from the video transcript (this is the primary source of information)
+4. Explains concepts clearly and concisely
+5. Connects the visual content with the transcript content when appropriate
+6. Encourages further learning
+
+IMPORTANT: The transcript is the main source of information - use it to understand what's actually being taught. The image provides visual context but the transcript tells you what's happening. Keep your response SHORT and CONCISE (2-3 sentences maximum).`;
+
+      // Use multimodal prompt with both text and image
+      console.log('LearnTube: Sending multimodal prompt with image to on-device AI');
+      console.log('LearnTube: Image file details:', {
+        name: imageFile.name,
+        type: imageFile.type,
+        size: imageFile.size
+      });
+      
+      const result = await session.prompt([
+        {
+          role: 'user',
+          content: [
+            { type: 'text', value: prompt },
+            { type: 'image', value: imageFile }
+          ]
+        }
+      ]);
+      console.log('LearnTube: Received response from on-device AI:', typeof result);
+      
+      let aiResponse;
+      if (typeof result === 'string') {
+        aiResponse = result;
+      } else if (result && typeof result === 'object') {
+        aiResponse = result.response || result.text || result.content || result.output || JSON.stringify(result);
+      } else {
+        aiResponse = String(result);
+      }
+
+      return aiResponse.trim();
+
+  } catch (error) {
+    console.error('LearnTube: Multimodal processing failed:', error);
+    throw error;
+  } finally {
+    if (session && typeof session.destroy === 'function') {
+      try {
+        session.destroy();
+      } catch (destroyError) {
+        console.warn('LearnTube: Failed to dispose language model session:', destroyError);
+      }
+    }
+  }
+}
+
+async function getChatResponseWithAPI(userMessage, capturedFrame, transcriptText) {
+  const apiKey = userSettings.geminiApiKey?.trim();
+  if (!apiKey) {
+    throw new Error('Gemini API key not configured');
+  }
+
+  const prompt = `You are a helpful AI tutor analyzing a YouTube video. The user is asking questions about the current video content.
+
+VIDEO CONTEXT:
+- Current video frame: [Image captured at ${Math.round(videoElement.currentTime)}s - Analyze the visual content]
+- Transcript up to this point: "${transcriptText}"
+
+USER QUESTION: "${userMessage}"
+
+CRITICAL: You must analyze BOTH the image AND the transcript together. The transcript contains the actual content being discussed in the video - use it as your primary source of information.
+
+Please provide a helpful, educational response that:
+1. Directly addresses the user's question
+2. References specific content from the video transcript (this is your main source of information)
+3. Combines what you see in the image with what's being discussed in the transcript
+4. Explains concepts clearly and concisely
+5. Encourages further learning
+6. Connects the visual content with the transcript content when appropriate
+
+IMPORTANT: The transcript tells you what's happening in the video - use it as your primary source. The image provides visual context but the transcript contains the actual content. Keep your response SHORT and CONCISE (2-3 sentences maximum).`;
+
+  try {
+    const result = await callGeminiAPIWithRetry(apiKey, {
+      contents: [{
+        parts: [
+          { text: prompt },
+          { 
+            inline_data: {
+              mime_type: "image/jpeg",
+              data: capturedFrame.split(',')[1] // Remove data:image/jpeg;base64, prefix
+            }
+          }
+        ]
+      }],
+      generationConfig: {
+        temperature: 0.7,
+        topK: 40,
+        topP: 0.95,
+        maxOutputTokens: 1000
+      }
+    });
+
+    if (result && typeof result === 'string' && result.trim()) {
+      return result.trim();
+    }
+
+    console.warn('LearnTube: Gemini API returned unexpected response format:', typeof result, result);
+    return 'I apologize, but I could not generate a response.';
+  } catch (error) {
+    console.error('LearnTube: Gemini API chat response failed:', error);
+    throw error;
+  }
+}
+
+function showChatError(message) {
+  // Create a simple error overlay
+  createOverlay(`
+    <div class="learntube-chat-card" style="max-width: 400px;">
+      <div class="learntube-chat-header">
+        <div class="learntube-chat-icon">⚠️</div>
+        <div class="learntube-chat-title">
+          <h2>Chat Error</h2>
+        </div>
+        <button class="learntube-chat-close">×</button>
+      </div>
+      <div style="padding: 20px; text-align: center;">
+        <p>${message}</p>
+        <button onclick="removeOverlay(); chatActive = false;" style="
+          background: #0154d4;
+          color: white;
+          border: none;
+          padding: 10px 20px;
+          border-radius: 6px;
+          cursor: pointer;
+          margin-top: 16px;
+        ">OK</button>
+      </div>
+    </div>
+  `);
+
+  // Add close handler
+  setTimeout(() => {
+    const closeBtn = document.querySelector('.learntube-chat-close');
+    if (closeBtn) {
+      closeBtn.addEventListener('click', () => {
+        removeOverlay();
+        chatActive = false;
+      });
+    }
+  }, 100);
+}
+
+function closeChat() {
+  // Track chat closure
+  trackAnalyticsEvent('live_chat_closed', {
+    video_id_hash: videoId ? getHashedVideoId(videoId) : null,
+    message_count: chatSession ? chatSession.messages.length : 0,
+    ai_provider: userSettings.aiProvider
+  });
+
+  removeOverlay();
+  chatActive = false;
+  chatSession = null;
+  chatHistory = [];
+}
