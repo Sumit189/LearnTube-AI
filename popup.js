@@ -830,7 +830,7 @@ async function checkModelStatus() {
   try {
     const tab = await getActiveTab();
     if (!tab || !isYouTubeWatchUrl(tab.url)) {
-      const unavailableState = { status: 'not-ready', message: 'Not on YouTube', canDownload: false };
+      const unavailableState = { status: 'not-ready', message: 'Not on YouTube Video', canDownload: false };
       applyModelStates(unavailableState, unavailableState);
       return;
     }
