@@ -11,7 +11,7 @@ let pendingSegmentTriggers = new Set();
 let seekbarObserver = null;
 let indicatorsAllowed = false;
 let indicatorsAdded = false;
-const DEFAULT_USER_SETTINGS = { questionCount: 1, autoQuiz: true, finalQuizEnabled: true, enabled: true, theme: 'dark', analyticsEnabled: true, aiProvider: 'on-device', geminiApiKey: '' };
+const DEFAULT_USER_SETTINGS = { questionCount: 1, autoQuiz: true, finalQuizEnabled: true, enabled: true, theme: 'light', themeScope: 'quiz-popup', analyticsEnabled: true, aiProvider: 'on-device', geminiApiKey: '' };
 let userSettings = { ...DEFAULT_USER_SETTINGS };
 let finalQuizQuestions = null;
 let finalQuizGenerating = false;
@@ -3323,6 +3323,21 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       console.error('LearnTube: Error updating settings:', error);
       sendResponse({ success: false, message: 'Failed to update settings' });
     });
+    return true;
+  }
+
+  if (message.type === 'UPDATE_THEME') {
+    userSettings.theme = message.theme;
+    userSettings.themeScope = message.themeScope;
+    
+    // Update overlay theme if it exists
+    const overlay = document.getElementById('learntube-overlay');
+    if (overlay) {
+      // Both scopes apply theme to quiz popup - the difference is only in popup theming
+      overlay.setAttribute('data-theme', message.theme);
+    }
+    
+    sendResponse({ success: true });
     return true;
   }
 

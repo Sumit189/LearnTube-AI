@@ -229,9 +229,20 @@
           <div class="setting-description">Choose your preferred color theme</div>
         </div>
         <select id="themeSelect" class="setting-select">
-          <option value="dark" selected>Dark</option>
-          <option value="light">Light</option>
+          <option value="dark">Dark</option>
+          <option value="light" selected>Light</option>
         </select>
+      </div>
+
+      <div class="setting-item">
+        <div class="setting-info">
+          <div class="setting-label">Apply Theme To</div>
+          <div class="setting-description">Choose where to apply the selected theme</div>
+        </div>
+        <div class="theme-scope segmented" id="themeScope">
+          <button type="button" class="seg-btn active" data-scope="quiz-popup">Quiz Popup</button>
+          <button type="button" class="seg-btn" data-scope="all-place">All Place</button>
+        </div>
       </div>
     </div>
 
@@ -252,8 +263,8 @@
     </div>
 
     <div class="popup-actions">
-      <button id="clearProgress" class="btn-test" type="button">
-        Clear Progress
+      <button id="resetButton" class="btn-test" type="button" style="background: #dc2626; color: white; border: 1px solid #dc2626;">
+        Reset
       </button>
     </div>
 

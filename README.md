@@ -215,7 +215,7 @@ Open the extension popup (click the icon) to access settings:
 - **Theme**: Switch between dark and light popup themes to match your preference
 - **Clear This Video**: Remove cached quizzes for the currently open video so they regenerate on reload
 - **Clear All Cache**: Wipe cached quizzes and transcripts for every video if you want a clean slate
-- **Clear Progress**: Reset aggregated quiz history and statistics displayed in the popup
+- **Reset**: Complete factory reset - clears all cache, progress, and resets settings to defaults
 - **Share Progress**: Copy a shareable summary of your current-video or overall quiz performance to the clipboard
 
 ## Privacy
@@ -232,7 +232,7 @@ Open the extension popup (click the icon) to access settings:
 - Quiz progress and answers remain on your device
 - No personal data is collected beyond what's necessary for AI processing
 
-You can clear all stored data at any time using the "Clear Progress" button in the popup.
+You can clear all stored data at any time using the "Reset" button in the popup.
 
 ### Optional Analytics
 

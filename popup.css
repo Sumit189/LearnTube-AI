@@ -901,6 +901,39 @@ body[data-theme="light"] .collapsible-icon::before {
   color: white;
 }
 
+.theme-scope.segmented {
+  display: inline-flex;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid #262626;
+  border-radius: 8px;
+  padding: 2px;
+  gap: 2px;
+  contain: layout style;
+}
+
+.theme-scope.segmented .seg-btn {
+  border: none;
+  background: transparent;
+  color: #737373;
+  padding: 6px 10px;
+  font-size: 12px;
+  font-weight: 500;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background-color 0.2s ease, color 0.2s ease;
+  will-change: background-color, color;
+}
+
+.theme-scope.segmented .seg-btn:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: #fafafa;
+}
+
+.theme-scope.segmented .seg-btn.active {
+  background: linear-gradient(135deg, #0154d4, #0154d4);
+  color: white;
+}
+
 .setting-select {
   background: rgba(255, 255, 255, 0.03);
   border: 1px solid #262626;

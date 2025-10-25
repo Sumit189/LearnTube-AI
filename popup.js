@@ -4,7 +4,8 @@ let settings = {
   questionCount: 1,
   finalQuizEnabled: true,
   soundEnabled: true,
-  theme: 'dark',
+  theme: 'light',
+  themeScope: 'quiz-popup',
   analyticsEnabled: true,
   aiProvider: 'on-device',
   geminiApiKey: ''
@@ -432,7 +433,7 @@ async function loadSettings() {
     if (response) {
       settings = { ...settings, ...response };
       if (!settings.theme) {
-        settings.theme = 'dark';
+        settings.theme = 'light';
       }
       updateUI();
     }
@@ -462,7 +463,17 @@ function updateUI() {
   document.getElementById('autoQuizToggle').checked = settings.autoQuiz;
   document.getElementById('finalQuizToggle').checked = settings.finalQuizEnabled;
   document.getElementById('questionCount').value = settings.questionCount;
-  document.getElementById('themeSelect').value = settings.theme || 'dark';
+  document.getElementById('themeSelect').value = settings.theme || 'light';
+  
+  // Update theme scope segmented control
+  const themeScope = settings.themeScope || 'quiz-popup';
+  const themeScopeButtons = document.querySelectorAll('#themeScope .seg-btn');
+  themeScopeButtons.forEach(btn => {
+    btn.classList.remove('active');
+    if (btn.dataset.scope === themeScope) {
+      btn.classList.add('active');
+    }
+  });
   
   // Update AI provider radio buttons
   const provider = settings.aiProvider || 'on-device';
@@ -579,7 +590,34 @@ function updateModelStatusDisplay(provider) {
 }
 
 function applyTheme(theme) {
-  document.body.setAttribute('data-theme', theme);
+  const themeScope = settings.themeScope || 'quiz-popup';
+  
+  // Apply theme to popup based on scope
+  if (themeScope === 'all-place') {
+    document.body.setAttribute('data-theme', theme);
+  } else {
+    // When scope is quiz-popup, invert the theme for popup
+    const invertedTheme = theme === 'light' ? 'dark' : 'light';
+    document.body.setAttribute('data-theme', invertedTheme);
+  }
+  
+  // Send theme info to content script for quiz popup theming
+  updateContentScriptTheme(theme, themeScope);
+}
+
+async function updateContentScriptTheme(theme, themeScope) {
+  try {
+    const tab = await getActiveYouTubeTab();
+    if (tab) {
+      await sendMessageToTab(tab.id, {
+        type: 'UPDATE_THEME',
+        theme: theme,
+        themeScope: themeScope
+      });
+    }
+  } catch (error) {
+    console.warn('LearnTube: Failed to send theme update to content script:', error);
+  }
 }
 
 async function loadProgress() {
@@ -668,6 +706,31 @@ document.getElementById('themeSelect').addEventListener('change', (e) => {
   saveSettings();
 });
 
+// Theme scope segmented control event listeners
+function setupThemeScopeListeners() {
+  const themeScopeContainer = document.getElementById('themeScope');
+  if (!themeScopeContainer) return;
+
+  themeScopeContainer.addEventListener('click', (e) => {
+    if (!e.target.classList.contains('seg-btn')) return;
+    
+    const newScope = e.target.dataset.scope;
+    
+    // Update UI
+    const buttons = themeScopeContainer.querySelectorAll('.seg-btn');
+    buttons.forEach(b => b.classList.remove('active'));
+    e.target.classList.add('active');
+    
+    // Update settings and reapply theme
+    settings.themeScope = newScope;
+    applyTheme(settings.theme);
+    saveSettings();
+  });
+}
+
+// Initialize theme scope listeners
+setupThemeScopeListeners();
+
 // AI Provider radio button handlers
 document.getElementById('providerOnDevice').addEventListener('change', (e) => {
   if (e.target.checked) {
@@ -734,17 +797,43 @@ document.getElementById('getApiKey').addEventListener('click', () => {
   });
 });
 
-document.getElementById('clearProgress').addEventListener('click', async () => {
-  if (confirm('Are you sure you want to clear all progress? This cannot be undone.')) {
+document.getElementById('resetButton').addEventListener('click', async () => {
+  if (confirm('Are you sure you want to reset everything? This will clear all cache, progress, and settings. This cannot be undone.')) {
     try {
+      // Clear all progress
       await chrome.runtime.sendMessage({ type: 'CLEAR_PROGRESS' });
+      
+      // Clear all cache
+      await chrome.runtime.sendMessage({ type: 'CLEAR_ALL_CACHE' });
+      
+      // Reset settings to defaults
+      settings = {
+        enabled: true,
+        autoQuiz: true,
+        questionCount: 1,
+        finalQuizEnabled: true,
+        soundEnabled: true,
+        theme: 'light',
+        themeScope: 'quiz-popup',
+        analyticsEnabled: true,
+        aiProvider: 'on-device',
+        geminiApiKey: ''
+      };
+      
+      // Save reset settings
+      await saveSettings();
+      
+      // Update UI
+      updateUI();
+      
+      // Reset progress display
       document.getElementById('totalVideos').textContent = '0';
       document.getElementById('totalQuizzes').textContent = '0';
       document.getElementById('avgScore').textContent = '0%';
 
-      const btn = document.getElementById('clearProgress');
+      const btn = document.getElementById('resetButton');
       const originalText = btn.innerHTML;
-      btn.innerHTML = '✓ Progress Cleared';
+      btn.innerHTML = '✓ Reset Complete';
       btn.disabled = true;
 
       setTimeout(() => {
@@ -752,7 +841,7 @@ document.getElementById('clearProgress').addEventListener('click', async () => {
         btn.disabled = false;
       }, 2000);
     } catch (error) {
-      console.error('Error clearing progress:', error);
+      console.error('Error resetting:', error);
     }
   }
 });

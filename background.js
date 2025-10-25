@@ -88,7 +88,8 @@ chrome.runtime.onInstalled.addListener(async (details) => {
     questionCount: 1,
     finalQuizEnabled: true,
     soundEnabled: true,
-    theme: 'dark',
+    theme: 'light',
+    themeScope: 'quiz-popup',
     analyticsEnabled: true
   };
 
