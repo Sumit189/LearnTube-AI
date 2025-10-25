@@ -481,6 +481,9 @@ function updateUI() {
   document.getElementById('providerOnDevice').checked = provider === 'on-device';
   document.getElementById('providerGemini').checked = provider === 'gemini-api';
   
+  // Trigger change event to update summary
+  document.querySelector('input[name="aiProvider"]:checked').dispatchEvent(new Event('change'));
+  
   document.getElementById('geminiApiKey').value = settings.geminiApiKey || '';
   applyTheme(settings.theme || 'dark');
   updateAIProviderUI();
