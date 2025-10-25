@@ -630,6 +630,14 @@ body[data-theme="light"] .install-guide-link:hover {
   color: #fde047;
 }
 
+body[data-theme="light"] .get-api-key-link {
+  color: #000000;
+}
+
+body[data-theme="light"] .get-api-key-link:hover {
+  color: #333333;
+}
+
 .popup-section {
   padding: 20px 24px;
   border-bottom: 1px solid #262626;
@@ -1514,6 +1522,6 @@ body[data-theme="light"] .collapsible-icon::before {
 }
 
 body[data-theme="light"] .about-options strong {
-  color: #f59e0b;
+  color: #000000;
 }
 
