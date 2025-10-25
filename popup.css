@@ -727,6 +727,10 @@ body[data-theme="light"] .get-api-key-link:hover {
   display: none;
 }
 
+.collapsible-section.collapsed .collapsible-content {
+  display: none;
+}
+
 .collapsible-section .status-content {
   margin-top: 12px;
 }

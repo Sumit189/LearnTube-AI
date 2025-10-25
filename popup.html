@@ -39,6 +39,70 @@
       </div>
     </div>
 
+    <div class="popup-section collapsible-section collapsed" id="modelProviderSection">
+      <button class="collapsible-toggle" id="modelProviderToggle" type="button" aria-expanded="false" aria-controls="modelProviderContent">
+        <span class="collapsible-title">Select Model Provider</span>
+        <span class="collapsible-summary">
+          <span id="modelProviderSummary" class="status-pill status-pending">On Device</span>
+          <span class="collapsible-icon" aria-hidden="true"></span>
+        </span>
+      </button>
+      <div id="modelProviderContent" class="collapsible-content" aria-hidden="true">
+        <div class="setting-description" style="margin-bottom: 16px;">Choose how LearnTube AI generates quizzes and summaries</div>
+        
+        <div class="setting-item radio-options-section">
+          <div class="provider-radio-group">
+            <label class="radio-option">
+              <input type="radio" name="aiProvider" value="on-device" id="providerOnDevice" checked>
+              <div class="radio-content">
+                <div class="radio-header">
+                  <span class="radio-label">On Device</span>
+                  <span class="radio-badge private-badge">
+                    <span class="lock-icon">🔒</span>
+                    <span>Private</span>
+                  </span>
+                </div>
+                <span class="radio-desc">100% Private • Runs locally on your device</span>
+              </div>
+            </label>
+            <label class="radio-option">
+              <input type="radio" name="aiProvider" value="gemini-api" id="providerGemini">
+              <div class="radio-content">
+                <div class="radio-header">
+                  <span class="radio-label">Gemini API</span>
+                  <span class="radio-badge gemini-badge">
+                    <span class="bolt-icon">⚡</span>
+                    <span>Fast</span>
+                  </span>
+                </div>
+                <span class="radio-desc">Cloud-powered • Faster processing with Google AI</span>
+              </div>
+            </label>
+          </div>
+        </div>
+
+        <div class="setting-item" id="geminiApiKeySetting" style="display: none;">
+          <div class="setting-label">Enter API Key:</div>
+          <div class="api-key-input-group">
+            <input type="password" id="geminiApiKey" class="api-key-input" placeholder="Enter your API key">
+            <button type="button" id="toggleApiKeyVisibility" class="api-key-eye-btn">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                <circle cx="12" cy="12" r="3"></circle>
+              </svg>
+            </button>
+          </div>
+        </div>
+        
+        <div class="setting-item">
+          <a id="getApiKey" class="install-guide-link get-api-key-link" href="#" role="link">Get Free API Key</a>
+          <div class="save-button-row">
+            <button type="button" id="saveApiKey" class="save-api-key-btn">Save</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <div class="popup-section">
       <h2>AI Model Status</h2>
       <div class="model-status">
@@ -165,63 +229,6 @@
         </select>
       </div>
 
-      <div class="setting-item model-provider-heading">
-        <div class="setting-info">
-          <div class="setting-label">Select Model Provider</div>
-          <div class="setting-description">Choose how LearnTube AI generates quizzes and summaries</div>
-        </div>
-      </div>
-      
-      <div class="setting-item radio-options-section">
-        <div class="provider-radio-group">
-          <label class="radio-option">
-            <input type="radio" name="aiProvider" value="on-device" id="providerOnDevice" checked>
-            <div class="radio-content">
-              <div class="radio-header">
-                <span class="radio-label">On Device</span>
-                <span class="radio-badge private-badge">
-                  <span class="lock-icon">🔒</span>
-                  <span>Private</span>
-                </span>
-              </div>
-              <span class="radio-desc">100% Private • Runs locally on your device</span>
-            </div>
-          </label>
-          <label class="radio-option">
-            <input type="radio" name="aiProvider" value="gemini-api" id="providerGemini">
-            <div class="radio-content">
-              <div class="radio-header">
-                <span class="radio-label">Gemini API</span>
-                <span class="radio-badge gemini-badge">
-                  <span class="bolt-icon">⚡</span>
-                  <span>Fast</span>
-                </span>
-              </div>
-              <span class="radio-desc">Cloud-powered • Faster processing with Google AI</span>
-            </div>
-          </label>
-        </div>
-      </div>
-
-      <div class="setting-item" id="geminiApiKeySetting" style="display: none;">
-        <div class="setting-label">Enter API Key:</div>
-        <div class="api-key-input-group">
-          <input type="password" id="geminiApiKey" class="api-key-input" placeholder="Enter your API key">
-          <button type="button" id="toggleApiKeyVisibility" class="api-key-eye-btn">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
-              <circle cx="12" cy="12" r="3"></circle>
-            </svg>
-          </button>
-        </div>
-      </div>
-      
-      <div class="setting-item">
-        <a id="getApiKey" class="install-guide-link get-api-key-link" href="#" role="link">Get Free API Key</a>
-        <div class="save-button-row">
-          <button type="button" id="saveApiKey" class="save-api-key-btn">Save</button>
-        </div>
-      </div>
 
       <div class="setting-item">
         <div class="setting-info">

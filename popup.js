@@ -8,7 +8,8 @@ let settings = {
   themeScope: 'quiz-popup',
   analyticsEnabled: true,
   aiProvider: 'on-device',
-  geminiApiKey: ''
+  geminiApiKey: '',
+  modelProviderExpanded: false
 };
 
 const STATUS_LABELS = {
@@ -484,6 +485,25 @@ function updateUI() {
   applyTheme(settings.theme || 'dark');
   updateAIProviderUI();
   updateApiKeyStatus();
+  
+  // Update model provider collapsible state
+  if (settings.modelProviderExpanded !== undefined) {
+    const section = document.getElementById('modelProviderSection');
+    const toggle = document.getElementById('modelProviderToggle');
+    const content = document.getElementById('modelProviderContent');
+    
+    if (section && toggle && content) {
+      if (settings.modelProviderExpanded) {
+        toggle.setAttribute('aria-expanded', 'true');
+        content.setAttribute('aria-hidden', 'false');
+        section.classList.remove('collapsed');
+      } else {
+        toggle.setAttribute('aria-expanded', 'false');
+        content.setAttribute('aria-hidden', 'true');
+        section.classList.add('collapsed');
+      }
+    }
+  }
 
   const analyticsToggle = document.getElementById('analyticsToggle');
   if (analyticsToggle) {
@@ -730,6 +750,76 @@ function setupThemeScopeListeners() {
 
 // Initialize theme scope listeners
 setupThemeScopeListeners();
+
+// Model Provider collapsible functionality
+function setupModelProviderCollapsible() {
+  const toggle = document.getElementById('modelProviderToggle');
+  const content = document.getElementById('modelProviderContent');
+  const summary = document.getElementById('modelProviderSummary');
+  const section = document.getElementById('modelProviderSection');
+  
+  if (!toggle || !content || !summary || !section) return;
+  
+  // Apply saved state from settings
+  function applyModelProviderState() {
+    const shouldBeExpanded = settings.modelProviderExpanded;
+    
+    if (shouldBeExpanded) {
+      toggle.setAttribute('aria-expanded', 'true');
+      content.setAttribute('aria-hidden', 'false');
+      section.classList.remove('collapsed');
+    } else {
+      toggle.setAttribute('aria-expanded', 'false');
+      content.setAttribute('aria-hidden', 'true');
+      section.classList.add('collapsed');
+    }
+  }
+  
+  // Apply initial state
+  applyModelProviderState();
+  
+  toggle.addEventListener('click', () => {
+    const isExpanded = toggle.getAttribute('aria-expanded') === 'true';
+    
+    toggle.setAttribute('aria-expanded', !isExpanded);
+    content.setAttribute('aria-hidden', isExpanded);
+    
+    if (isExpanded) {
+      section.classList.add('collapsed');
+      settings.modelProviderExpanded = false;
+    } else {
+      section.classList.remove('collapsed');
+      settings.modelProviderExpanded = true;
+    }
+    
+    // Save with other settings
+    saveSettings();
+  });
+  
+  // Update summary when provider changes
+  function updateProviderSummary() {
+    const onDeviceRadio = document.getElementById('providerOnDevice');
+    const geminiRadio = document.getElementById('providerGemini');
+    
+    if (onDeviceRadio && onDeviceRadio.checked) {
+      summary.textContent = 'On Device';
+      summary.className = 'status-pill status-pending';
+    } else if (geminiRadio && geminiRadio.checked) {
+      summary.textContent = 'Gemini API';
+      summary.className = 'status-pill status-ready';
+    }
+  }
+  
+  // Listen for provider changes
+  document.getElementById('providerOnDevice').addEventListener('change', updateProviderSummary);
+  document.getElementById('providerGemini').addEventListener('change', updateProviderSummary);
+  
+  // Initial summary update
+  updateProviderSummary();
+}
+
+// Initialize model provider collapsible
+setupModelProviderCollapsible();
 
 // AI Provider radio button handlers
 document.getElementById('providerOnDevice').addEventListener('change', (e) => {
