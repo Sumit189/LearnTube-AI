@@ -1,10 +1,10 @@
 # LearnTube AI
 
-A Chrome extension that transforms passive YouTube watching into active learning by generating AI-powered quizzes during videos. Think of it like Coursera's quiz system, but automatically applied to any educational YouTube video you watch.
+A Chrome extension that transforms passive YouTube watching into active learning by generating AI-powered quizzes during videos. Think of it like Coursera's quiz system, but automatically applied to any YouTube video you watch.
 
 
 ## Research Inspiration
-We've all been there: watching a 45-minute educational YouTube video only to realize halfway through that our mind has completely wandered. Passive watching is easy, but retention is hard. Platforms like Coursera show that active learning with quizzes dramatically improves knowledge retention, but that model only works for structured courses.
+We've all been there: watching a 45-minute YouTube video only to realize halfway through that our mind has completely wandered. Passive watching is easy, but retention is hard. Platforms like Coursera show that active learning with quizzes dramatically improves knowledge retention, but that model only works for structured courses.
 
 Recent studies reinforce the importance of interactivity in video-based learning.
 Recent studies reinforce the importance of interactivity in video-based learning.
@@ -41,23 +41,27 @@ LearnTube AI is a Chrome extension that analyzes video transcripts and generates
 
 ### Architecture
 
-The extension consists of three main components working together:
+The extension consists of three main components working together with dual AI provider support:
 
 **Content Script** (`content.js`)
 - Injects into YouTube video pages
 - Extracts and processes video transcripts by clicking the transcript button and parsing the panel
 - Segments transcripts into logical chunks (default 180 seconds each)
 - Monitors video playback using `timeupdate` events to trigger quizzes at the right moments
-- Generates quiz questions using Chrome's AI APIs
+- Generates quiz questions using either Chrome's built-in AI APIs or Google's Gemini API based on user selection
 - Displays quiz overlays on top of the video player
+- Handles AI provider switching and API key management
 
 **Background Script** (`background.js`)
 - Manages extension settings and user progress in Chrome's local storage
 - Handles messages between popup and content scripts
 - Initializes default settings when extension is installed
+- Manages analytics events with AI provider tracking
 
 **Popup UI** (`popup.html`, `popup.js`)
 - Provides controls for enabling/disabling features
+- AI provider selection (On Device vs Gemini API)
+- API key management for Gemini API users
 - Shows model status and allows downloading AI models if not available
 - Displays user statistics (videos watched, quizzes taken, average score) and lets you share progress for the current video or overall history
 - Offers cache management tools to refresh quizzes for the current video or wipe all cached data
@@ -65,9 +69,17 @@ The extension consists of three main components working together:
 
 ### Key Implementation Details
 
-**AI Model Management**: The extension checks if Chrome's Language Model and Summarizer are available using `LanguageModel.availability()` and `Summarizer.availability()`. If not downloaded (status is "downloadable"), users can trigger the download via the popup interface which creates a session with the model to initiate the download.
+**AI Provider Selection**: Users can choose between two AI providers:
+- **On Device AI**: Uses Chrome's built-in Language Model and Summarizer APIs for complete privacy
+- **Gemini API**: Uses Google's cloud-based Gemini API for faster processing and enhanced capabilities
 
-**Quiz Generation**: For mid-video quizzes, questions are generated using the Language Model (Prompt API) with a system prompt that instructs the AI to create multiple-choice questions with 4 options and explanations. For the final quiz, the entire transcript is first summarized using the Summarizer API to extract key points, then the Language Model generates questions based on that summary. This approach improves performance and focuses the final quiz on the most important concepts.
+**AI Model Management**: 
+- **On Device**: Checks if Chrome's Language Model and Summarizer are available using `LanguageModel.availability()` and `Summarizer.availability()`. If not downloaded (status is "downloadable"), users can trigger the download via the popup interface.
+- **Gemini API**: Validates API keys and handles authentication with Google's servers. Includes retry logic with exponential backoff for quota management.
+
+**Quiz Generation**: 
+- **On Device**: For mid-video quizzes, questions are generated using the Language Model (Prompt API). For the final quiz, the entire transcript is first summarized using the Summarizer API, then the Language Model generates questions based on that summary.
+- **Gemini API**: Uses Google's Gemini 2.5 Flash Lite model with chunked processing for large transcripts. Includes automatic retry logic and quota management.
 
 **Caching**: Generated quizzes are stored in Chrome's local storage under the video ID to avoid regenerating them on subsequent views. Users can clear the cache via the popup if they want fresh questions.
 
@@ -75,11 +87,15 @@ The extension consists of three main components working together:
 
 **Overlay UI**: Quiz overlays are created as custom HTML elements injected into the page with high z-index values to appear above the video player. They include the question, answer options, feedback, and navigation controls.
 
+**Analytics Integration**: Tracks AI provider usage in analytics events, allowing monitoring of which AI provider users prefer and performance metrics for each option.
+
 ## Installation (Unpacked Extension)
 
-Since this extension uses Chrome's built-in AI APIs, you need a recent version of Chrome with specific flags enabled.
+The extension supports two AI provider options with different installation requirements:
 
 ### Prerequisites
+
+#### For On Device AI (Default)
 
 1. **Install Chrome (Stable, Canary, or Dev)**
    - Chrome Stable: https://www.google.com/chrome/
@@ -100,6 +116,19 @@ Since this extension uses Chrome's built-in AI APIs, you need a recent version o
    - Type: `await LanguageModel.availability()`
    - You should see `"available"` or `"downloadable"`
    - If you see an error or `undefined`, the APIs aren't supported on your system
+
+#### For Gemini API (Alternative)
+
+1. **Install Chrome (Any Recent Version)**
+   - Chrome Stable: https://www.google.com/chrome/
+   - No special flags required
+   - Works on any recent Chrome version
+
+2. **Get a Free API Key**
+   - Visit [Google AI Studio](https://aistudio.google.com/api-keys)
+   - Sign in with your Google account
+   - Click "Create API Key" to generate a new key
+   - Copy the API key (starts with "AI...")
 
 ### Loading the Extension
 
@@ -211,6 +240,7 @@ If you leave the **Analytics** toggle enabled in the popup, LearnTube AI forward
 - A random client identifier stored in `chrome.storage.local` (no Google account or device identifiers)
 - The event name (`user_install`, `user_update`, `analytics_opt_in`, `analytics_opt_out`, `extension_active`, `quiz_progress_snapshot`)
 - Lightweight event parameters such as `quiz_type` (`segment` or `final`), `question_count`, `source` (`extension_install`, `extension_update`, `popup_toggle`), and daily cadence flags
+- AI provider tracking (`ai_provider`: `on-device` or `gemini-api`) for understanding user preferences
 - Automatic Measurement Protocol fields added by the proxy (`app_platform`, `hit_sequence`, `engagement_time_msec`)
 - An anonymized SHA-256 hash of the YouTube video ID (`video_id_hash`) when quiz generation events are buffered.
 - All analytics traffic is anonymized; events attach only the random client identifier and omit personal or content payloads.
@@ -246,6 +276,7 @@ No transcripts, answers, video IDs, URLs, or personally identifiable information
          - `question_count`: Questions generated for that segment or quiz.
          - `status`: `completed` or `error`.
          - `error_message`: Failure reason when `status` is `error`, otherwise empty string.
+         - `ai_provider`: AI provider used for quiz generation (`on-device` or `gemini-api`).
          - `recorded_at`: Client-side timestamp in milliseconds since epoch.
 
 
