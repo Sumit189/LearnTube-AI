@@ -11,7 +11,7 @@ let pendingSegmentTriggers = new Set();
 let seekbarObserver = null;
 let indicatorsAllowed = false;
 let indicatorsAdded = false;
-const DEFAULT_USER_SETTINGS = { questionCount: 1, autoQuiz: true, finalQuizEnabled: true, enabled: true, theme: 'dark', analyticsEnabled: true };
+const DEFAULT_USER_SETTINGS = { questionCount: 1, autoQuiz: true, finalQuizEnabled: true, enabled: true, theme: 'dark', analyticsEnabled: true, aiProvider: 'on-device', geminiApiKey: '' };
 let userSettings = { ...DEFAULT_USER_SETTINGS };
 let finalQuizQuestions = null;
 let finalQuizGenerating = false;
@@ -135,7 +135,6 @@ const TRANSCRIPT_PROCESSING_CONFIG = {
   SUMMARY_MIN_CHUNK_CHAR_LIMIT: 1000,
   SUMMARY_COMBINED_CHAR_LIMIT: 4000,
   QUIZ_INPUT_CHAR_LIMIT: 3000,
-  LANGUAGE_MODEL_INPUT_CHAR_LIMIT: 4000,
   CHUNK_REDUCTION_RATIO: 0.7
 };
 
@@ -502,10 +501,14 @@ async function ensureFinalQuizReady(segments, options = {}) {
       await updateFinalTarget(targetCount);
       await markFinalStatus('processing', 0, '');
 
-      const summary = await summarizeTranscript(allText);
+      const summary = userSettings.aiProvider === 'gemini-api'
+        ? await summarizeTranscriptWithAPI(allText)
+        : await summarizeTranscript(allText);
       const summaryText = summary || trimTextToLimit(allText, TRANSCRIPT_PROCESSING_CONFIG.QUIZ_INPUT_CHAR_LIMIT);
       const finalSegment = { start: 0, end: totalDuration, text: summaryText };
-      const generated = await generateQuiz(finalSegment, targetCount);
+      const generated = userSettings.aiProvider === 'gemini-api'
+        ? await generateQuizWithAPI(finalSegment, targetCount)
+        : await generateQuiz(finalSegment, targetCount);
 
       if (!generated || generated.length === 0) {
         throw new Error('Final quiz generation returned no questions');
@@ -746,6 +749,7 @@ async function enqueueQuizGenerationEvent(videoId, details = {}) {
     question_count: typeof details.question_count === 'number' ? details.question_count : null,
     status: details.status || 'completed',
     error_message: details.error_message || '',
+    ai_provider: userSettings.aiProvider || 'on-device',
     recorded_at: Date.now()
   });
 
@@ -960,20 +964,19 @@ function segmentTranscript(transcript) {
   const totalDuration = Math.max(videoDuration, transcriptEnd);
   const fallbackEnd = transcriptEnd || videoDuration;
 
+  const cfg = typeof CONFIG === 'object' ? CONFIG : {};
   const {
     FINAL_QUIZ_TRIGGER_PERCENTAGE = 0.92,
     SEGMENT_DURATION = 180
-  } = CONFIG || {};
+  } = cfg;
 
   const effectiveTotal = totalDuration || fallbackEnd;
   const cutoffTime = effectiveTotal * FINAL_QUIZ_TRIGGER_PERCENTAGE;
   const minGapBeforeFinalQuiz = Math.min(90, Math.max(30, effectiveTotal * 0.15));
-
   const usableWindow = Math.max(0, cutoffTime - minGapBeforeFinalQuiz);
-  const transcriptText = transcript.map(entry => entry.text).join(' ');
+  const transcriptText = transcript.map(e => e.text).join(' ');
 
   if (usableWindow <= 30) {
-    console.log('LearnTube: segmentTranscript - single segment fallback (short video)');
     return [{
       start: 0,
       end: fallbackEnd,
@@ -982,28 +985,28 @@ function segmentTranscript(transcript) {
     }];
   }
 
-  const desiredSegments = Math.max(1, Math.round(usableWindow / SEGMENT_DURATION));
-  const rawSegmentDuration = usableWindow / desiredSegments;
-  const clampedDuration = Math.max(60, Math.min(360, rawSegmentDuration));
+  const baseDuration = SEGMENT_DURATION || 180;
+  const scale = Math.log10(usableWindow / 600 + 1) + 1;
+  const clampedDuration = Math.min(900, baseDuration * scale);
+  const desiredSegments = Math.ceil(usableWindow / clampedDuration);
 
   const segments = [];
-  let segStart = 0;
   let tIdx = 0;
 
-  while (segStart < usableWindow) {
-    const segEnd = Math.min(segStart + clampedDuration, usableWindow);
+  for (let i = 0; i < desiredSegments; i++) {
+    const segStart = i * clampedDuration;
+    const segEnd = Math.min((i + 1) * clampedDuration, usableWindow);
     const entries = [];
 
     while (tIdx < transcript.length && transcript[tIdx].start < segEnd) {
-      const entry = transcript[tIdx];
-      if (entry.start >= segStart) entries.push(entry);
+      const e = transcript[tIdx];
+      if (e.start >= segStart) entries.push(e);
       tIdx++;
     }
 
     if (entries.length) {
       const lastEntry = entries.at(-1);
-      const actualEnd = lastEntry.start + (lastEntry.duration || 0);
-
+      const actualEnd = Math.min(lastEntry.start + (lastEntry.duration || 0), usableWindow);
       segments.push({
         start: segStart,
         end: actualEnd,
@@ -1011,12 +1014,9 @@ function segmentTranscript(transcript) {
         entries
       });
     }
-
-    segStart += clampedDuration;
   }
 
   if (segments.length === 0) {
-    console.log('LearnTube: segmentTranscript - fallback to full transcript segment');
     return [{
       start: 0,
       end: fallbackEnd,
@@ -1029,6 +1029,7 @@ function segmentTranscript(transcript) {
   return segments;
 }
 
+
 async function handleSegmentGeneration(segment, index) {
   const questionTarget = userSettings.questionCount || 1;
   segment.status = 'processing';
@@ -1037,7 +1038,9 @@ async function handleSegmentGeneration(segment, index) {
   updateSeekbarIndicator(index);
 
   try {
-    const questions = await generateQuiz(segment, questionTarget);
+    const questions = userSettings.aiProvider === 'gemini-api'
+      ? await generateQuizWithAPI(segment, questionTarget)
+      : await generateQuiz(segment, questionTarget);
     segment.questions = questions;
     segment.status = 'completed';
     segment.errorMessage = '';
@@ -1493,122 +1496,6 @@ async function summarizeTranscript(fullText) {
   }
 }
 
-async function summarizeSegmentText(segmentText) {
-  if (!segmentText || typeof segmentText !== 'string') {
-    return segmentText;
-  }
-
-  // Only summarize if text exceeds LanguageModel input limit
-  if (segmentText.length <= TRANSCRIPT_PROCESSING_CONFIG.LANGUAGE_MODEL_INPUT_CHAR_LIMIT) {
-    return segmentText;
-  }
-
-  if (typeof Summarizer === 'undefined') {
-    console.log('LearnTube: Summarizer API not available for segment, using truncated text');
-    return trimTextToLimit(segmentText, TRANSCRIPT_PROCESSING_CONFIG.QUIZ_INPUT_CHAR_LIMIT);
-  }
-
-  const availability = await Summarizer.availability();
-  if (availability !== 'available') {
-    console.log('LearnTube: Summarizer not available for segment, using truncated text');
-    return trimTextToLimit(segmentText, TRANSCRIPT_PROCESSING_CONFIG.QUIZ_INPUT_CHAR_LIMIT);
-  }
-
-  let summarizer = null;
-  try {
-    summarizer = await Summarizer.create({
-      type: 'key-points',
-      format: 'plain-text',
-      length: 'medium',
-      sharedContext: 'This is educational video content.',
-      outputLanguage: 'en'
-    });
-
-    let chunkSize = TRANSCRIPT_PROCESSING_CONFIG.SUMMARY_CHUNK_CHAR_LIMIT;
-    const minChunk = TRANSCRIPT_PROCESSING_CONFIG.SUMMARY_MIN_CHUNK_CHAR_LIMIT;
-    let chunkRetryNeeded = true;
-    let quotaFallbackUsed = false;
-
-    while (chunkRetryNeeded && chunkSize >= minChunk) {
-      const chunks = splitTextIntoChunks(segmentText, chunkSize);
-      const summaries = [];
-      chunkRetryNeeded = false;
-
-      for (const chunk of chunks) {
-        try {
-          const result = await summarizer.summarize(chunk);
-          if (result && result.trim()) {
-            summaries.push(result.trim());
-          }
-        } catch (error) {
-          if (isQuotaExceededError(error)) {
-            quotaFallbackUsed = true;
-            if (chunkSize > minChunk) {
-              chunkSize = Math.max(minChunk, Math.floor(chunkSize * TRANSCRIPT_PROCESSING_CONFIG.CHUNK_REDUCTION_RATIO));
-              console.warn('LearnTube: Segment summary chunk exceeded quota, retrying with smaller chunk size:', chunkSize);
-              chunkRetryNeeded = true;
-              break;
-            }
-            console.warn('LearnTube: Segment summary chunk exceeded quota at minimum chunk size, using truncated text');
-            return trimTextToLimit(segmentText, TRANSCRIPT_PROCESSING_CONFIG.QUIZ_INPUT_CHAR_LIMIT);
-          }
-          throw error;
-        }
-      }
-
-      if (!chunkRetryNeeded) {
-        if (!summaries.length) {
-          if (quotaFallbackUsed) {
-            return trimTextToLimit(segmentText, TRANSCRIPT_PROCESSING_CONFIG.QUIZ_INPUT_CHAR_LIMIT);
-          }
-          console.log('LearnTube: Summarizer returned empty response for segment, using truncated text');
-          return trimTextToLimit(segmentText, TRANSCRIPT_PROCESSING_CONFIG.QUIZ_INPUT_CHAR_LIMIT);
-        }
-
-        let combinedSummary = summaries.join('\n\n').trim();
-        if (!combinedSummary) {
-          return trimTextToLimit(segmentText, TRANSCRIPT_PROCESSING_CONFIG.QUIZ_INPUT_CHAR_LIMIT);
-        }
-
-        if (combinedSummary.length > TRANSCRIPT_PROCESSING_CONFIG.SUMMARY_COMBINED_CHAR_LIMIT) {
-          const limitedInput = trimTextToLimit(combinedSummary, TRANSCRIPT_PROCESSING_CONFIG.SUMMARY_COMBINED_CHAR_LIMIT);
-          try {
-            const secondPass = await summarizer.summarize(limitedInput);
-            if (secondPass && secondPass.trim()) {
-              combinedSummary = secondPass.trim();
-            } else {
-              combinedSummary = limitedInput;
-            }
-          } catch (error) {
-            if (isQuotaExceededError(error)) {
-              console.warn('LearnTube: Segment second-pass summary exceeded quota, using trimmed combined summary');
-              combinedSummary = limitedInput;
-            } else {
-              throw error;
-            }
-          }
-        }
-
-        console.log('LearnTube: Successfully summarized segment text for quiz generation');
-        return trimTextToLimit(combinedSummary, TRANSCRIPT_PROCESSING_CONFIG.LANGUAGE_MODEL_INPUT_CHAR_LIMIT);
-      }
-    }
-
-    return trimTextToLimit(segmentText, TRANSCRIPT_PROCESSING_CONFIG.LANGUAGE_MODEL_INPUT_CHAR_LIMIT);
-  } catch (error) {
-    console.error('LearnTube: Error summarizing segment text:', error);
-    return trimTextToLimit(segmentText, TRANSCRIPT_PROCESSING_CONFIG.LANGUAGE_MODEL_INPUT_CHAR_LIMIT);
-  } finally {
-    if (summarizer && typeof summarizer.destroy === 'function') {
-      try {
-        summarizer.destroy();
-      } catch (destroyError) {
-        console.warn('LearnTube: Failed to dispose segment summarizer:', destroyError);
-      }
-    }
-  }
-}
-
 async function generateQuiz(segment, desiredCount = 2) {
   if (!segment || typeof segment.text !== 'string' || !segment.text.trim()) {
     throw new Error('Segment content unavailable for quiz generation');
@@ -1629,7 +1516,9 @@ async function generateQuiz(segment, desiredCount = 2) {
       maxOutputTokens: 1200
     });
     const n = Math.max(1, Math.min(4, desiredCount));
-    const promptText = await summarizeSegmentText(segment.text);
+    const promptText = userSettings.aiProvider === 'gemini-api'
+      ? await summarizeTranscriptWithAPI(segment.text)
+      : await summarizeTranscript(segment.text);
     if (promptText.length < segment.text.length) {
       console.log('LearnTube: Segment text summarized for quiz prompt to fit LanguageModel input limit (1024 tokens)');
     }
@@ -1761,6 +1650,277 @@ function parseQuizResponse(response, desiredCount = 1) {
   } catch (error) {
     console.error('LearnTube: Error parsing quiz response:', error);
     return [];
+  }
+}
+
+// Gemini API Methods with retry logic
+async function callGeminiAPIWithRetry(apiKey, requestBody, maxRetries = 3) {
+  let lastError;
+
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemma-3-27b-it:generateContent?key=${apiKey}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(requestBody)
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        const error = new Error(`Gemini API error: ${response.status} - ${errorData.error?.message || response.statusText}`);
+
+        // Don't retry on client errors (4xx) except 429 (rate limit)
+        if (response.status >= 400 && response.status < 500 && response.status !== 429) {
+          throw error;
+        }
+
+        lastError = error;
+
+        if (attempt < maxRetries) {
+          const delay = Math.pow(2, attempt) * 1000; // Exponential backoff: 1s, 2s, 4s
+          console.warn(`LearnTube: Gemini API attempt ${attempt + 1} failed, retrying in ${delay}ms...`);
+          await new Promise(resolve => setTimeout(resolve, delay));
+          continue;
+        }
+
+        throw error;
+      }
+
+      const data = await response.json();
+      const result = data.candidates?.[0]?.content?.parts?.[0]?.text;
+
+      if (!result) {
+        throw new Error('No response from Gemini API');
+      }
+
+      return result;
+    } catch (error) {
+      lastError = error;
+
+      if (attempt < maxRetries) {
+        const delay = Math.pow(2, attempt) * 1000; // Exponential backoff: 1s, 2s, 4s
+        console.warn(`LearnTube: Gemini API attempt ${attempt + 1} failed, retrying in ${delay}ms...`, error.message);
+        await new Promise(resolve => setTimeout(resolve, delay));
+        continue;
+      }
+
+      throw error;
+    }
+  }
+
+  throw lastError;
+}
+
+async function generateQuizWithAPI(segment, desiredCount = 2) {
+  if (!segment || typeof segment.text !== 'string' || !segment.text.trim()) {
+    throw new Error('Segment content unavailable for quiz generation');
+  }
+
+  const apiKey = userSettings.geminiApiKey?.trim();
+  if (!apiKey) {
+    throw new Error('Gemini API key not configured');
+  }
+
+  const n = Math.max(1, Math.min(4, desiredCount));
+  const promptText = await summarizeTranscriptWithAPI(segment.text);
+
+  const prompt = `You are an expert educator creating engaging multiple-choice questions that check solid understanding without being overly tricky.
+
+Video Content (${Math.round(segment.start || 0)}s - ${Math.round(segment.end || (segment.start || 0) + (segment.duration || 0))}s):
+"""
+${promptText}
+"""
+
+CRITICAL REQUIREMENTS:
+1. Focus on core concepts, relationships, or practical implications from the video.
+2. Prefer WHY or HOW questions, but include a clear comprehension check when it reinforces the main idea.
+3. Avoid pure rote memorization or extreme trick questions; aim for approachable yet thoughtful prompts.
+4. Keep language clear and supportive so learners feel guided, not quizzed harshly.
+
+Question Design Rules:
+- Write EXACTLY ${n} questions (Q1..Q${n}) with 4 options each (A–D)
+- Each question should highlight a DIFFERENT key insight or connection from the content.
+- Mix application or implication prompts with scenario-based or direct comprehension checks when helpful.
+- Suggested stems: "Why...", "How does...", "What would happen if...", "What is the relationship between...", "Which best explains..."
+- Keep reasoning depth moderate; avoid multi-step calculations or obscure edge cases.
+
+Distractor (Wrong Answer) Strategy:
+- Make ALL options plausible and connected to the topic.
+- Include common misconceptions or partial truths, while keeping the correct answer clear with careful thought.
+- Use details from the video in each option so the correct choice is not obvious at a glance.
+- Avoid obvious eliminations like "None of the above" or joke answers.
+- Keep all options similar in length and style.
+
+Quality Checks:
+- Does this require understanding while still feeling approachable?
+- Would someone who paid reasonable attention to the segment succeed?
+- Are wrong answers believable without being misleading or nitpicky?
+- Does it reinforce the main takeaways without overwhelming detail?
+
+Output format (STRICT):`;
+
+  const makeBlock = (i) => `
+Q${i}: [Question]
+A) [Option]
+B) [Option]
+C) [Option]
+D) [Option]
+Correct: [A|B|C|D]`;
+
+  let fullPrompt = prompt + '\n' + makeBlock(1);
+  for (let i = 2; i <= n; i++) {
+    fullPrompt += '\n\n' + makeBlock(i);
+  }
+
+  try {
+    const result = await callGeminiAPIWithRetry(apiKey, {
+      contents: [{
+        parts: [{
+          text: fullPrompt
+        }]
+      }],
+      generationConfig: {
+        temperature: 0.8,
+        topK: 50,
+        topP: 0.95,
+        maxOutputTokens: 1200
+      }
+    });
+
+    const questions = parseQuizResponse(result, n);
+    if (!questions || questions.length < n) {
+      const count = Array.isArray(questions) ? questions.length : 0;
+      throw new Error(`Gemini API returned ${count} question(s); expected ${n}`);
+    }
+
+    return questions;
+  } catch (error) {
+    console.error('LearnTube: Gemini API quiz generation failed after retries:', error);
+    throw error;
+  }
+}
+
+async function summarizeTranscriptWithAPI(fullText) {
+  const sourceText = typeof fullText === 'string' ? fullText.trim() : '';
+  if (!sourceText) {
+    return null;
+  }
+
+  const apiKey = userSettings.geminiApiKey?.trim();
+  if (!apiKey) {
+    console.log('LearnTube: Gemini API key not configured, using truncated transcript');
+    return trimTextToLimit(sourceText, TRANSCRIPT_PROCESSING_CONFIG.QUIZ_INPUT_CHAR_LIMIT);
+  }
+
+  try {
+    let chunkSize = TRANSCRIPT_PROCESSING_CONFIG.SUMMARY_CHUNK_CHAR_LIMIT;
+    const minChunk = TRANSCRIPT_PROCESSING_CONFIG.SUMMARY_MIN_CHUNK_CHAR_LIMIT;
+    let combinedPieces = [];
+    let chunkRetryNeeded = true;
+    let quotaFallbackUsed = false;
+
+    while (chunkRetryNeeded && chunkSize >= minChunk) {
+      const chunks = splitTextIntoChunks(sourceText, chunkSize);
+      const summaries = [];
+      chunkRetryNeeded = false;
+
+      for (const chunk of chunks) {
+        try {
+          const result = await callGeminiAPIWithRetry(apiKey, {
+            contents: [{
+              parts: [{
+                text: `Summarize the following educational video transcript into key points. Focus on the main concepts, important details, and learning outcomes. Keep the summary concise but comprehensive.
+
+Transcript:
+${chunk}`
+              }]
+            }],
+            generationConfig: {
+              temperature: 0.3,
+              topK: 40,
+              topP: 0.95,
+              maxOutputTokens: 1000
+            }
+          });
+
+          if (result && result.trim()) {
+            summaries.push(result.trim());
+          }
+        } catch (error) {
+          if (error.message.includes('quota') || error.message.includes('429')) {
+            quotaFallbackUsed = true;
+            if (chunkSize > minChunk) {
+              chunkSize = Math.max(minChunk, Math.floor(chunkSize * TRANSCRIPT_PROCESSING_CONFIG.CHUNK_REDUCTION_RATIO));
+              console.warn('LearnTube: Gemini API chunk exceeded quota, retrying with smaller chunk size:', chunkSize);
+              chunkRetryNeeded = true;
+              break;
+            }
+            console.warn('LearnTube: Gemini API chunk exceeded quota at minimum chunk size, using truncated transcript');
+            return trimTextToLimit(sourceText, TRANSCRIPT_PROCESSING_CONFIG.QUIZ_INPUT_CHAR_LIMIT);
+          }
+          throw error;
+        }
+      }
+
+      if (!chunkRetryNeeded) {
+        combinedPieces = summaries;
+      }
+    }
+
+    if (!combinedPieces.length) {
+      if (quotaFallbackUsed) {
+        return trimTextToLimit(sourceText, TRANSCRIPT_PROCESSING_CONFIG.QUIZ_INPUT_CHAR_LIMIT);
+      }
+      console.log('LearnTube: Gemini API returned empty response, using truncated transcript');
+      return trimTextToLimit(sourceText, TRANSCRIPT_PROCESSING_CONFIG.QUIZ_INPUT_CHAR_LIMIT);
+    }
+
+    let combinedSummary = combinedPieces.join('\n\n').trim();
+    if (!combinedSummary) {
+      return trimTextToLimit(sourceText, TRANSCRIPT_PROCESSING_CONFIG.QUIZ_INPUT_CHAR_LIMIT);
+    }
+
+    if (combinedSummary.length > TRANSCRIPT_PROCESSING_CONFIG.SUMMARY_COMBINED_CHAR_LIMIT) {
+      const limitedInput = trimTextToLimit(combinedSummary, TRANSCRIPT_PROCESSING_CONFIG.SUMMARY_COMBINED_CHAR_LIMIT);
+      try {
+        const result = await callGeminiAPIWithRetry(apiKey, {
+          contents: [{
+            parts: [{
+              text: `Create a concise summary of the following key points from an educational video:
+
+${limitedInput}`
+            }]
+          }],
+          generationConfig: {
+            temperature: 0.3,
+            topK: 40,
+            topP: 0.95,
+            maxOutputTokens: 800
+          }
+        });
+
+        if (result && result.trim()) {
+          combinedSummary = result.trim();
+        } else {
+          combinedSummary = limitedInput;
+        }
+      } catch (error) {
+        if (error.message.includes('quota')) {
+          console.warn('LearnTube: Gemini API second-pass summary exceeded quota, using trimmed combined summary');
+          combinedSummary = limitedInput;
+        } else {
+          throw error;
+        }
+      }
+    }
+
+    console.log('LearnTube: Successfully summarized transcript using Gemini API');
+    return trimTextToLimit(combinedSummary, TRANSCRIPT_PROCESSING_CONFIG.QUIZ_INPUT_CHAR_LIMIT);
+  } catch (error) {
+    console.error('LearnTube: Gemini API summarization failed after retries:', error);
+    return trimTextToLimit(sourceText, TRANSCRIPT_PROCESSING_CONFIG.QUIZ_INPUT_CHAR_LIMIT);
   }
 }
 
@@ -2660,6 +2820,10 @@ function addQuizIndicatorsToSeekbar() {
   // Add indicators for each quiz segment (anchor at segment end)
   let addedCount = 0;
   videoSegments.forEach((segment, index) => {
+    // Only add indicator if segment has questions
+    if (!segment.questions || !Array.isArray(segment.questions) || segment.questions.length === 0) {
+      return;
+    }
     const duration = Number.isFinite(videoElement.duration) ? videoElement.duration : 0;
     const anchorTime = (() => {
       const end = typeof segment.end === 'number' ? segment.end : undefined;
@@ -2831,6 +2995,11 @@ function addIndicatorForSegment(index) {
   if (!videoElement) return;
   const segment = videoSegments[index];
   if (!segment || segment.end === undefined) return;
+
+  // Only add indicator if segment has questions
+  if (!segment.questions || !Array.isArray(segment.questions) || segment.questions.length === 0) {
+    return;
+  }
 
   // Ensure seekbar container exists
   const seekbarContainer = document.querySelector('.ytp-progress-bar-container') ||
@@ -3267,7 +3436,7 @@ async function downloadModel(modelType) {
 
 // Auto-initialize models on page load
 async function autoInitializeModels() {
-  if (modelsInitialized || modelsInitializing) {
+  if (modelsInitialized || modelsInitializing || userSettings.aiProvider === 'gemini-api') {
     return;
   }
   modelsInitializing = true;

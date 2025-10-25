@@ -99,6 +99,359 @@ body[data-theme="light"] .btn-test:hover {
   background: linear-gradient(135deg, #888888, #707070);
 }
 
+/* Provider Radio Group */
+.provider-radio-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+/* Override setting-info styles for model provider */
+.setting-item .setting-info .setting-label {
+  font-size: 16px;
+  font-weight: 600;
+  color: #fafafa;
+  margin-bottom: 4px;
+}
+
+.setting-item .setting-info .setting-description {
+  font-size: 13px;
+  color: #999;
+  line-height: 1.4;
+  margin-bottom: 0;
+}
+
+/* Split width for model provider section */
+.setting-item:has(.provider-radio-group) {
+  display: flex;
+  gap: 16px;
+  align-items: stretch;
+  min-height: 120px;
+}
+
+.setting-item:has(.provider-radio-group) .setting-info {
+  width: 30%;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.provider-radio-group {
+  width: 70%;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.radio-option {
+  display: flex;
+  align-items: flex-start;
+  cursor: pointer;
+  padding: 12px;
+  border: 1px solid #333;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.02);
+  transition: all 0.2s ease;
+  position: relative;
+}
+
+.radio-option:hover {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: #555;
+  transform: translateY(-1px);
+}
+
+.radio-option input[type="radio"] {
+  margin-right: 12px;
+  margin-top: 3px;
+  accent-color: #666;
+  transform: scale(1.1);
+}
+
+.radio-option input[type="radio"]:checked + .radio-content {
+  border-color: #666;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.radio-content {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+}
+
+.radio-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 2px;
+}
+
+.radio-label {
+  font-size: 15px;
+  font-weight: 600;
+  color: #fafafa;
+  cursor: pointer;
+}
+
+.radio-badge {
+  font-size: 10px;
+  padding: 3px 8px;
+  background: rgba(0, 0, 0, 0.2);
+  color: #fafafa;
+  border-radius: 12px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.private-badge {
+  background: rgba(0, 0, 0, 0.3);
+  color: #e5e5e5;
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+}
+
+.gemini-badge {
+  background: rgba(0, 0, 0, 0.3);
+  color: #e5e5e5;
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+}
+
+.lock-icon, .bolt-icon {
+  font-size: 12px;
+  animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.1); }
+}
+
+.radio-desc {
+  font-size: 13px;
+  color: #aaa;
+  cursor: pointer;
+  line-height: 1.4;
+}
+
+/* API Key Input Group */
+.api-key-input-group {
+  position: relative;
+  margin-top: 8px;
+}
+
+.api-key-input {
+  width: 100%;
+  padding: 10px 40px 10px 12px;
+  border: 1px solid #404040;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.05);
+  color: #fafafa;
+  font-size: 14px;
+  font-family: inherit;
+  transition: all 0.2s ease;
+}
+
+.api-key-input:focus {
+  outline: none;
+  border-color: #3b82f6;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.api-key-input::placeholder {
+  color: #888888;
+}
+
+.api-key-eye-btn {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  color: #888888;
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 4px;
+  transition: all 0.2s ease;
+}
+
+.api-key-eye-btn:hover {
+  color: #fafafa;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.api-key-eye-btn:focus {
+  outline: none;
+  color: #3b82f6;
+  background: rgba(59, 130, 246, 0.1);
+}
+
+/* Save Button Row */
+.save-button-row {
+  margin-top: 12px;
+}
+
+.save-api-key-btn {
+  width: 100%;
+  padding: 10px 16px;
+  background: #3b82f6;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.save-api-key-btn:hover {
+  background: #2563eb;
+}
+
+.save-api-key-btn:active {
+  background: #1d4ed8;
+}
+
+.save-api-key-btn:focus {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.3);
+}
+
+
+/* Light theme */
+body[data-theme="light"] .setting-item .setting-info .setting-label {
+  color: #1a1a1a;
+}
+
+body[data-theme="light"] .setting-item .setting-info .setting-description {
+  color: #666;
+}
+
+body[data-theme="light"] .radio-option {
+  background: rgba(0, 0, 0, 0.02);
+  border-color: #e0e0e0;
+}
+
+body[data-theme="light"] .radio-option:hover {
+  background: rgba(0, 0, 0, 0.05);
+  border-color: #d0d0d0;
+}
+
+body[data-theme="light"] .radio-option input[type="radio"]:checked + .radio-content {
+  border-color: #999;
+  background: rgba(0, 0, 0, 0.05);
+}
+
+body[data-theme="light"] .radio-label {
+  color: #1a1a1a;
+}
+
+body[data-theme="light"] .radio-desc {
+  color: #666;
+}
+
+body[data-theme="light"] .radio-badge {
+  background: rgba(255, 255, 255, 0.3);
+  color: #333;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+}
+
+body[data-theme="light"] .private-badge {
+  background: rgba(255, 255, 255, 0.4);
+  color: #555;
+  border: 1px solid rgba(0, 0, 0, 0.15);
+}
+
+body[data-theme="light"] .gemini-badge {
+  background: rgba(255, 255, 255, 0.4);
+  color: #555;
+  border: 1px solid rgba(0, 0, 0, 0.15);
+}
+
+body[data-theme="light"] .api-key-input {
+  background: rgba(0, 0, 0, 0.03);
+  border-color: #e0e0e0;
+  color: #1a1a1a;
+}
+
+
+body[data-theme="light"] .api-key-input:focus {
+  border-color: #3b82f6;
+  background: rgba(0, 0, 0, 0.06);
+}
+
+/* Remove separator for API key section */
+#geminiApiKeySetting {
+  border-bottom: none;
+}
+
+/* Remove separator for radio options section */
+.radio-options-section {
+  border-bottom: none !important;
+}
+
+/* Remove separator for model provider heading */
+.model-provider-heading {
+  border-bottom: none !important;
+}
+
+/* Make radio options full width */
+.provider-radio-group {
+  width: 100%;
+}
+
+.radio-option {
+  width: 100%;
+  margin-bottom: 8px;
+}
+
+.radio-option:last-child {
+  margin-bottom: 0;
+}
+
+/* Improve API key section layout */
+#geminiApiKeySetting + .setting-item {
+  padding-top: 0;
+}
+
+#geminiApiKeySetting + .setting-item .install-guide-link {
+  margin-bottom: 12px;
+}
+
+#geminiApiKeySetting + .setting-item .save-button-row {
+  margin-top: 0;
+}
+
+body[data-theme="light"] .api-key-input::placeholder {
+  color: #888888;
+}
+
+
+body[data-theme="light"] .api-key-eye-btn {
+  color: #888888;
+}
+
+body[data-theme="light"] .api-key-eye-btn:hover {
+  color: #1a1a1a;
+  background: rgba(0, 0, 0, 0.1);
+}
+
+body[data-theme="light"] .api-key-eye-btn:focus {
+  color: #3b82f6;
+  background: rgba(59, 130, 246, 0.1);
+}
+
 body[data-theme="light"] .status-placeholder {
   background: rgba(0, 0, 0, 0.02);
   border-color: #dcdcdc;
@@ -1142,5 +1495,25 @@ body[data-theme="light"] .collapsible-icon::before {
 
 .popup-section:nth-child(4) {
   animation-delay: 0.15s;
+}
+
+/* About section styling */
+.about-options {
+  margin: 12px 0;
+  padding-left: 20px;
+}
+
+.about-options li {
+  margin-bottom: 8px;
+  line-height: 1.4;
+}
+
+.about-options strong {
+  color: #facc15;
+  font-weight: 600;
+}
+
+body[data-theme="light"] .about-options strong {
+  color: #f59e0b;
 }
 

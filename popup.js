@@ -5,7 +5,9 @@ let settings = {
   finalQuizEnabled: true,
   soundEnabled: true,
   theme: 'dark',
-  analyticsEnabled: true
+  analyticsEnabled: true,
+  aiProvider: 'on-device',
+  geminiApiKey: ''
 };
 
 const STATUS_LABELS = {
@@ -461,11 +463,118 @@ function updateUI() {
   document.getElementById('finalQuizToggle').checked = settings.finalQuizEnabled;
   document.getElementById('questionCount').value = settings.questionCount;
   document.getElementById('themeSelect').value = settings.theme || 'dark';
+  
+  // Update AI provider radio buttons
+  const provider = settings.aiProvider || 'on-device';
+  document.getElementById('providerOnDevice').checked = provider === 'on-device';
+  document.getElementById('providerGemini').checked = provider === 'gemini-api';
+  
+  document.getElementById('geminiApiKey').value = settings.geminiApiKey || '';
   applyTheme(settings.theme || 'dark');
+  updateAIProviderUI();
+  updateApiKeyStatus();
 
   const analyticsToggle = document.getElementById('analyticsToggle');
   if (analyticsToggle) {
     analyticsToggle.checked = settings.analyticsEnabled !== false;
+  }
+}
+
+function updateAIProviderUI() {
+  const provider = settings.aiProvider || 'on-device';
+  const apiKeySetting = document.getElementById('geminiApiKeySetting');
+  const apiKeyActions = document.querySelector('#geminiApiKeySetting + .setting-item');
+  
+  if (apiKeySetting) {
+    apiKeySetting.style.display = provider === 'gemini-api' ? 'flex' : 'none';
+  }
+  
+  if (apiKeyActions) {
+    apiKeyActions.style.display = provider === 'gemini-api' ? 'block' : 'none';
+  }
+  
+  updateModelStatusDisplay(provider);
+}
+
+function updateApiKeyStatus() {
+  const apiKeyStatus = document.getElementById('apiKeyStatus');
+  const apiKey = settings.geminiApiKey?.trim();
+  
+  if (apiKeyStatus) {
+    if (apiKey && apiKey.length > 0) {
+      apiKeyStatus.style.display = 'flex';
+    } else {
+      apiKeyStatus.style.display = 'none';
+    }
+  }
+}
+
+function updateModelStatusDisplay(provider) {
+  const modelStatusContainer = document.querySelector('.model-status');
+  if (!modelStatusContainer) return;
+  
+  if (provider === 'gemini-api') {
+    // Show only Gemini model
+    modelStatusContainer.innerHTML = `
+      <div class="model-item">
+        <div class="model-info">
+          <div class="model-name">Gemma 3 - 27B</div>
+          <div class="model-description">Generates quiz questions and summaries</div>
+        </div>
+        <div class="model-status-indicator" id="geminiModelStatus">
+          <div class="status-dot"></div>
+          <span class="status-text">Checking...</span>
+          <div class="progress-bar" id="geminiModelProgress" style="display: none;">
+            <div class="progress-fill"></div>
+            <span class="progress-text">0%</span>
+          </div>
+        </div>
+      </div>
+    `;
+    
+    // Update Gemini status
+    const apiKey = settings.geminiApiKey?.trim();
+    if (apiKey) {
+      updateModelStatus('geminiModelStatus', 'ready', 'API Key Configured', false);
+    } else {
+      updateModelStatus('geminiModelStatus', 'not-ready', 'API Key Required', false);
+    }
+  } else {
+    // Show original on-device models
+    modelStatusContainer.innerHTML = `
+      <div class="model-item">
+        <div class="model-info">
+          <div class="model-name">Language Model</div>
+          <div class="model-description">Generates quiz questions</div>
+        </div>
+        <div class="model-status-indicator" id="languageModelStatus">
+          <div class="status-dot"></div>
+          <span class="status-text">Checking...</span>
+          <div class="progress-bar" id="languageModelProgress" style="display: none;">
+            <div class="progress-fill"></div>
+            <span class="progress-text">0%</span>
+          </div>
+        </div>
+      </div>
+      
+      <div class="model-item">
+        <div class="model-info">
+          <div class="model-name">Summarizer</div>
+          <div class="model-description">Creates video summaries</div>
+        </div>
+        <div class="model-status-indicator" id="summarizerStatus">
+          <div class="status-dot"></div>
+          <span class="status-text">Checking...</span>
+          <div class="progress-bar" id="summarizerProgress" style="display: none;">
+            <div class="progress-fill"></div>
+            <span class="progress-text">0%</span>
+          </div>
+        </div>
+      </div>
+    `;
+    
+    // Restore original model status checking
+    checkModelStatus();
   }
 }
 
@@ -557,6 +666,72 @@ document.getElementById('themeSelect').addEventListener('change', (e) => {
   settings.theme = e.target.value;
   applyTheme(settings.theme);
   saveSettings();
+});
+
+// AI Provider radio button handlers
+document.getElementById('providerOnDevice').addEventListener('change', (e) => {
+  if (e.target.checked) {
+    settings.aiProvider = 'on-device';
+    updateAIProviderUI();
+    saveSettings();
+  }
+});
+
+document.getElementById('providerGemini').addEventListener('change', (e) => {
+  if (e.target.checked) {
+    settings.aiProvider = 'gemini-api';
+    updateAIProviderUI();
+    saveSettings();
+  }
+});
+
+document.getElementById('geminiApiKey').addEventListener('input', (e) => {
+  settings.geminiApiKey = e.target.value;
+  updateApiKeyStatus();
+  updateModelStatusDisplay(settings.aiProvider);
+});
+
+document.getElementById('saveApiKey').addEventListener('click', () => {
+  const apiKey = document.getElementById('geminiApiKey').value.trim();
+  if (apiKey) {
+    settings.geminiApiKey = apiKey;
+    saveSettings();
+    updateApiKeyStatus();
+    updateModelStatusDisplay(settings.aiProvider);
+    
+    // Show success feedback
+    const saveBtn = document.getElementById('saveApiKey');
+    const originalText = saveBtn.textContent;
+    saveBtn.textContent = 'Saved!';
+    saveBtn.style.background = '#10b981';
+    
+    setTimeout(() => {
+      saveBtn.textContent = originalText;
+      saveBtn.style.background = '#3b82f6';
+    }, 2000);
+  }
+});
+
+// API Key visibility toggle
+document.getElementById('toggleApiKeyVisibility').addEventListener('click', (e) => {
+  const input = document.getElementById('geminiApiKey');
+  const button = e.target.closest('button');
+  const svg = button.querySelector('svg');
+  
+  if (input.type === 'password') {
+    input.type = 'text';
+    svg.innerHTML = '<path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path><line x1="1" y1="1" x2="23" y2="23"></line>';
+  } else {
+    input.type = 'password';
+    svg.innerHTML = '<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle>';
+  }
+});
+
+// Get API Key button
+document.getElementById('getApiKey').addEventListener('click', () => {
+  chrome.tabs.create({
+    url: 'https://aistudio.google.com/api-keys'
+  });
 });
 
 document.getElementById('clearProgress').addEventListener('click', async () => {

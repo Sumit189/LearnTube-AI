@@ -17,13 +17,17 @@ Recent studies reinforce the importance of interactivity in video-based learning
 
 These findings highlight a clear gap. YouTube is home to millions of high-quality educational videos, but it lacks the mechanisms that make structured learning platforms so effective. 
 
-I wondered if we could bring that same accountability to any YouTube video, such as Khan Academy, MIT lectures, or 3Blue1Brown, without requiring creators to manually add quizzes. When Chrome announced built-in AI capabilities, I realized it could finally be done entirely client-side, with no servers, no API keys, and complete privacy.
+I wondered if we could bring that same accountability to any YouTube video, such as Khan Academy, MIT lectures, or 3Blue1Brown, without requiring creators to manually add quizzes. When Chrome announced built-in AI capabilities, I realized it could finally be done entirely client-side, with no servers, no API keys, and complete privacy. However, on-device AI models require [significant system resources](https://developer.chrome.com/docs/ai/get-started) (22GB+ storage, 16GB+ RAM, and compatible hardware), so I added a cloud-based API option to ensure the extension works smoothly for all users.
 
 ## What It Is
 
-LearnTube AI is a Chrome extension that uses Chrome's built-in Gemini Nano AI (no external API keys required) to analyze video transcripts and generate contextual quiz questions. The extension pauses videos at natural topic transitions to quiz you on what you just learned, then gives you a comprehensive final quiz when the video ends.
+LearnTube AI is a Chrome extension that analyzes video transcripts and generates contextual quiz questions using AI. The extension pauses videos at natural topic transitions to quiz you on what you just learned, then gives you a comprehensive final quiz when the video ends.
 
-All AI processing happens locally on your machine using Chrome's built-in AI APIs. No data leaves your browser, and it works offline once the models are downloaded.
+**Two AI Provider Options:**
+
+1. **On Device (Default)**: Uses Chrome's built-in Gemini Nano AI - no external API keys required. All AI processing happens locally on your machine using Chrome's built-in AI APIs. No data leaves your browser, and it works offline once the models are downloaded.
+
+2. **Gemini API**: Uses Google's cloud-based Gemini API for faster processing and more powerful AI capabilities. Requires a free API key from Google AI Studio. Data is processed by Google's servers but your API key is stored locally.
 
 ## Key Features
 
@@ -121,6 +125,8 @@ Since this extension uses Chrome's built-in AI APIs, you need a recent version o
 
 ### First-Time Setup
 
+#### Option 1: On Device AI (Default - No API Key Required)
+
 1. **Open a YouTube Video**
    - Navigate to any YouTube video with captions/transcript available
    - Educational videos work best (e.g., Khan Academy, Crash Course, MIT OpenCourseWare)
@@ -129,7 +135,7 @@ Since this extension uses Chrome's built-in AI APIs, you need a recent version o
    - Click the LearnTube AI icon in your toolbar
    - Check the "Model Status" section
    - If models show "Not ready", click the "Download" button for each model
-   - Model downloads are ~1.5GB total and may take several minutes
+   - Model downloads are ~22GB total and may take several minutes
    - Once downloaded, models are cached permanently
 
 3. **Start Learning**
@@ -137,6 +143,25 @@ Since this extension uses Chrome's built-in AI APIs, you need a recent version o
    - The extension will automatically extract the transcript and prepare quizzes
    - Watch the video normally - it will pause automatically when quizzes appear
    - Answer the questions and click "Continue" to resume the video
+
+#### Option 2: Gemini API (Faster Processing)
+
+1. **Get a Free API Key**
+   - Visit [Google AI Studio](https://aistudio.google.com/api-keys)
+   - Sign in with your Google account
+   - Click "Create API Key" to generate a new key
+   - Copy the API key (starts with "AI...")
+
+2. **Configure the Extension**
+   - Click the LearnTube AI icon in your toolbar
+   - Select "Gemini API" as your AI provider
+   - Paste your API key in the "Enter API Key" field
+   - Click "Save" to store the key locally
+
+3. **Start Learning**
+   - Navigate to any YouTube video with captions
+   - The extension will use Google's cloud AI for faster processing
+   - Quizzes will be generated more quickly with enhanced AI capabilities
 
 ### Troubleshooting
 
@@ -152,6 +177,8 @@ Since this extension uses Chrome's built-in AI APIs, you need a recent version o
 
 Open the extension popup (click the icon) to access settings:
 
+- **Select Model Provider**: Choose between "On Device" (Chrome's built-in AI) or "Gemini API" (Google's cloud AI)
+- **Enter API Key**: If using Gemini API, enter your free API key from Google AI Studio
 - **Enable LearnTube AI**: Master toggle for all in-video quiz features
 - **Auto Quiz**: Whether quizzes appear automatically during playback
 - **Final Quiz**: Whether to show the comprehensive end-of-video quiz
@@ -164,11 +191,17 @@ Open the extension popup (click the icon) to access settings:
 
 ## Privacy
 
-All data stays on your device. The extension:
+**On Device Mode (Default)**: All data stays on your device. The extension:
 - Does not send any data to external servers
 - Does not track your viewing history beyond local storage
 - Uses Chrome's built-in AI models that run entirely offline
 - Stores quiz progress locally using Chrome's Storage API
+
+**Gemini API Mode**: When using Google's Gemini API:
+- Video transcripts are sent to Google's servers for AI processing
+- Your API key is stored locally and never shared
+- Quiz progress and answers remain on your device
+- No personal data is collected beyond what's necessary for AI processing
 
 You can clear all stored data at any time using the "Clear Progress" button in the popup.
 
@@ -216,21 +249,51 @@ No transcripts, answers, video IDs, URLs, or personally identifiable information
          - `recorded_at`: Client-side timestamp in milliseconds since epoch.
 
 
-## Benefits of On-Device Processing
+## AI Provider Comparison
 
+### On Device AI (Default)
+
+**Benefits:**
 - **Stronger privacy**: Transcripts, quiz answers, and progress never leave your browser, so sensitive viewing habits remain confidential.
 - **Lower latency**: Running Gemini Nano locally removes round trips to remote servers, keeping quizzes responsive even on slower connections.
 - **Consistent offline access**: Once models are downloaded, LearnTube AI continues to work during travel or limited connectivity scenarios.
 - **No recurring costs**: There are no metered API calls or tokens to manage, making continuous use of the extension free.
 - **Deterministic updates**: Model upgrades happen through Chrome updates and device-side downloads, reducing dependency on third-party service changes.
 
+**Requirements:**
+- Chrome with AI flags enabled
+- 22GB+ free storage space
+- 16GB+ RAM and 4+ CPU cores (or 4GB+ VRAM)
+- Windows 10/11, macOS 13+, Linux, or ChromeOS (Chromebook Plus)
+- Unmetered internet connection for initial download
+
+*Source: [Chrome Built-in AI Requirements](https://developer.chrome.com/docs/ai/get-started)*
+
+### Gemini API (Cloud)
+
+**Benefits:**
+- **Faster processing**: Cloud-based AI typically generates quizzes more quickly
+- **More powerful AI**: Access to Google's latest Gemini models with enhanced capabilities
+- **No local storage**: No need to download large AI models
+- **Always up-to-date**: Automatically uses the latest AI improvements
+- **Better performance**: Optimized for cloud processing with higher throughput
+
+**Requirements:**
+- Internet connection
+- Free Google AI Studio API key
+- Data sent to Google's servers for processing
+
 ## Technical Stack
 
 - JavaScript (ES6+)
 - Chrome Extension Manifest V3
-- Chrome Built-in AI APIs (Gemini Nano)
+- **On Device AI**: Chrome Built-in AI APIs (Gemini Nano)
   - Language Model (Prompt API) for question generation
   - Summarizer API for condensing full transcripts before final quiz generation
+- **Cloud AI**: Google Gemini API
+  - REST API calls to Google's Gemini 2.5 Flash Lite model
+  - Automatic retry logic with exponential backoff
+  - Chunked processing for large transcripts
 - Chrome Storage API for local persistence
 - YouTube DOM manipulation for transcript extraction
 

@@ -165,6 +165,64 @@
         </select>
       </div>
 
+      <div class="setting-item model-provider-heading">
+        <div class="setting-info">
+          <div class="setting-label">Select Model Provider</div>
+          <div class="setting-description">Choose how LearnTube AI generates quizzes and summaries</div>
+        </div>
+      </div>
+      
+      <div class="setting-item radio-options-section">
+        <div class="provider-radio-group">
+          <label class="radio-option">
+            <input type="radio" name="aiProvider" value="on-device" id="providerOnDevice" checked>
+            <div class="radio-content">
+              <div class="radio-header">
+                <span class="radio-label">On Device</span>
+                <span class="radio-badge private-badge">
+                  <span class="lock-icon">🔒</span>
+                  <span>Private</span>
+                </span>
+              </div>
+              <span class="radio-desc">100% Private • Runs locally on your device</span>
+            </div>
+          </label>
+          <label class="radio-option">
+            <input type="radio" name="aiProvider" value="gemini-api" id="providerGemini">
+            <div class="radio-content">
+              <div class="radio-header">
+                <span class="radio-label">Gemini API</span>
+                <span class="radio-badge gemini-badge">
+                  <span class="bolt-icon">⚡</span>
+                  <span>Fast</span>
+                </span>
+              </div>
+              <span class="radio-desc">Cloud-powered • Faster processing with Google AI</span>
+            </div>
+          </label>
+        </div>
+      </div>
+
+      <div class="setting-item" id="geminiApiKeySetting" style="display: none;">
+        <div class="setting-label">Enter API Key:</div>
+        <div class="api-key-input-group">
+          <input type="password" id="geminiApiKey" class="api-key-input" placeholder="Enter your API key">
+          <button type="button" id="toggleApiKeyVisibility" class="api-key-eye-btn">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+              <circle cx="12" cy="12" r="3"></circle>
+            </svg>
+          </button>
+        </div>
+      </div>
+      
+      <div class="setting-item">
+        <a id="getApiKey" class="install-guide-link" href="#" role="link">Get Free API Key</a>
+        <div class="save-button-row">
+          <button type="button" id="saveApiKey" class="save-api-key-btn">Save</button>
+        </div>
+      </div>
+
       <div class="setting-item">
         <div class="setting-info">
           <div class="setting-label">Theme</div>
@@ -180,13 +238,16 @@
     <div class="popup-section">
       <h2>About</h2>
       <p class="about-text">
-        LearnTube AI uses Chrome's built-in AI to generate interactive quizzes 
-        while you watch educational videos. All processing happens locally for 
-        complete privacy.
+        LearnTube AI generates interactive quizzes while you watch educational videos. 
+        You can choose between two AI providers:
       </p>
+      <ul class="about-options">
+        <li><strong>On Device AI:</strong> Complete privacy with Chrome's built-in AI (requires 22GB+ storage)</li>
+        <li><strong>Gemini API:</strong> Faster processing with Google's cloud AI (requires free API key)</li>
+      </ul>
       <div class="about-features">
-        <div class="feature-badge">100% Private</div>
-        <div class="feature-badge">Powered by On Device AI</div>
+        <div class="feature-badge">Flexible AI Options</div>
+        <div class="feature-badge">Privacy & Performance</div>
       </div>
     </div>
 
