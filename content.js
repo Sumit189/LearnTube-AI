@@ -131,10 +131,11 @@ const CACHE_CONFIG = {
 const STATUS_STORAGE_KEY = 'learntube_generation_status';
 
 const TRANSCRIPT_PROCESSING_CONFIG = {
-  SUMMARY_CHUNK_CHAR_LIMIT: 2500,
-  SUMMARY_MIN_CHUNK_CHAR_LIMIT: 1500,
+  SUMMARY_CHUNK_CHAR_LIMIT: 2000,
+  SUMMARY_MIN_CHUNK_CHAR_LIMIT: 1000,
   SUMMARY_COMBINED_CHAR_LIMIT: 4000,
   QUIZ_INPUT_CHAR_LIMIT: 3000,
+  LANGUAGE_MODEL_INPUT_CHAR_LIMIT: 4000,
   CHUNK_REDUCTION_RATIO: 0.7
 };
 
@@ -1269,8 +1270,6 @@ async function cacheAllQuizzes(videoId, segments) {
 
     await chrome.storage.local.set({ [key]: cacheData });
     await touchCache(videoId);
-
-    console.log(`LearnTube: Cached ${segments.length} segments`);
   } catch (error) {
     logStorageError('Error caching quizzes', error);
   }
@@ -1494,6 +1493,122 @@ async function summarizeTranscript(fullText) {
   }
 }
 
+async function summarizeSegmentText(segmentText) {
+  if (!segmentText || typeof segmentText !== 'string') {
+    return segmentText;
+  }
+
+  // Only summarize if text exceeds LanguageModel input limit
+  if (segmentText.length <= TRANSCRIPT_PROCESSING_CONFIG.LANGUAGE_MODEL_INPUT_CHAR_LIMIT) {
+    return segmentText;
+  }
+
+  if (typeof Summarizer === 'undefined') {
+    console.log('LearnTube: Summarizer API not available for segment, using truncated text');
+    return trimTextToLimit(segmentText, TRANSCRIPT_PROCESSING_CONFIG.QUIZ_INPUT_CHAR_LIMIT);
+  }
+
+  const availability = await Summarizer.availability();
+  if (availability !== 'available') {
+    console.log('LearnTube: Summarizer not available for segment, using truncated text');
+    return trimTextToLimit(segmentText, TRANSCRIPT_PROCESSING_CONFIG.QUIZ_INPUT_CHAR_LIMIT);
+  }
+
+  let summarizer = null;
+  try {
+    summarizer = await Summarizer.create({
+      type: 'key-points',
+      format: 'plain-text',
+      length: 'medium',
+      sharedContext: 'This is educational video content.',
+      outputLanguage: 'en'
+    });
+
+    let chunkSize = TRANSCRIPT_PROCESSING_CONFIG.SUMMARY_CHUNK_CHAR_LIMIT;
+    const minChunk = TRANSCRIPT_PROCESSING_CONFIG.SUMMARY_MIN_CHUNK_CHAR_LIMIT;
+    let chunkRetryNeeded = true;
+    let quotaFallbackUsed = false;
+
+    while (chunkRetryNeeded && chunkSize >= minChunk) {
+      const chunks = splitTextIntoChunks(segmentText, chunkSize);
+      const summaries = [];
+      chunkRetryNeeded = false;
+
+      for (const chunk of chunks) {
+        try {
+          const result = await summarizer.summarize(chunk);
+          if (result && result.trim()) {
+            summaries.push(result.trim());
+          }
+        } catch (error) {
+          if (isQuotaExceededError(error)) {
+            quotaFallbackUsed = true;
+            if (chunkSize > minChunk) {
+              chunkSize = Math.max(minChunk, Math.floor(chunkSize * TRANSCRIPT_PROCESSING_CONFIG.CHUNK_REDUCTION_RATIO));
+              console.warn('LearnTube: Segment summary chunk exceeded quota, retrying with smaller chunk size:', chunkSize);
+              chunkRetryNeeded = true;
+              break;
+            }
+            console.warn('LearnTube: Segment summary chunk exceeded quota at minimum chunk size, using truncated text');
+            return trimTextToLimit(segmentText, TRANSCRIPT_PROCESSING_CONFIG.QUIZ_INPUT_CHAR_LIMIT);
+          }
+          throw error;
+        }
+      }
+
+      if (!chunkRetryNeeded) {
+        if (!summaries.length) {
+          if (quotaFallbackUsed) {
+            return trimTextToLimit(segmentText, TRANSCRIPT_PROCESSING_CONFIG.QUIZ_INPUT_CHAR_LIMIT);
+          }
+          console.log('LearnTube: Summarizer returned empty response for segment, using truncated text');
+          return trimTextToLimit(segmentText, TRANSCRIPT_PROCESSING_CONFIG.QUIZ_INPUT_CHAR_LIMIT);
+        }
+
+        let combinedSummary = summaries.join('\n\n').trim();
+        if (!combinedSummary) {
+          return trimTextToLimit(segmentText, TRANSCRIPT_PROCESSING_CONFIG.QUIZ_INPUT_CHAR_LIMIT);
+        }
+
+        if (combinedSummary.length > TRANSCRIPT_PROCESSING_CONFIG.SUMMARY_COMBINED_CHAR_LIMIT) {
+          const limitedInput = trimTextToLimit(combinedSummary, TRANSCRIPT_PROCESSING_CONFIG.SUMMARY_COMBINED_CHAR_LIMIT);
+          try {
+            const secondPass = await summarizer.summarize(limitedInput);
+            if (secondPass && secondPass.trim()) {
+              combinedSummary = secondPass.trim();
+            } else {
+              combinedSummary = limitedInput;
+            }
+          } catch (error) {
+            if (isQuotaExceededError(error)) {
+              console.warn('LearnTube: Segment second-pass summary exceeded quota, using trimmed combined summary');
+              combinedSummary = limitedInput;
+            } else {
+              throw error;
+            }
+          }
+        }
+
+        console.log('LearnTube: Successfully summarized segment text for quiz generation');
+        return trimTextToLimit(combinedSummary, TRANSCRIPT_PROCESSING_CONFIG.LANGUAGE_MODEL_INPUT_CHAR_LIMIT);
+      }
+    }
+
+    return trimTextToLimit(segmentText, TRANSCRIPT_PROCESSING_CONFIG.LANGUAGE_MODEL_INPUT_CHAR_LIMIT);
+  } catch (error) {
+    console.error('LearnTube: Error summarizing segment text:', error);
+    return trimTextToLimit(segmentText, TRANSCRIPT_PROCESSING_CONFIG.LANGUAGE_MODEL_INPUT_CHAR_LIMIT);
+  } finally {
+    if (summarizer && typeof summarizer.destroy === 'function') {
+      try {
+        summarizer.destroy();
+      } catch (destroyError) {
+        console.warn('LearnTube: Failed to dispose segment summarizer:', destroyError);
+      }
+    }
+  }
+}
+
 async function generateQuiz(segment, desiredCount = 2) {
   if (!segment || typeof segment.text !== 'string' || !segment.text.trim()) {
     throw new Error('Segment content unavailable for quiz generation');
@@ -1514,9 +1629,9 @@ async function generateQuiz(segment, desiredCount = 2) {
       maxOutputTokens: 1200
     });
     const n = Math.max(1, Math.min(4, desiredCount));
-    const promptText = trimTextToLimit(segment.text, TRANSCRIPT_PROCESSING_CONFIG.QUIZ_INPUT_CHAR_LIMIT);
+    const promptText = await summarizeSegmentText(segment.text);
     if (promptText.length < segment.text.length) {
-      console.warn('LearnTube: Segment text truncated for quiz prompt due to size limit');
+      console.log('LearnTube: Segment text summarized for quiz prompt to fit LanguageModel input limit (1024 tokens)');
     }
     const header = `You are an expert educator creating engaging multiple-choice questions that check solid understanding without being overly tricky.
 
