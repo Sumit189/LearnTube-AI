@@ -89,7 +89,20 @@ The extension consists of three main components working together with dual AI pr
 
 **Analytics Integration**: Tracks AI provider usage in analytics events, allowing monitoring of which AI provider users prefer and performance metrics for each option.
 
-## Installation (Unpacked Extension)
+## Installation
+
+### Chrome Web Store (Recommended)
+
+**Install LearnTube AI directly from the Chrome Web Store:**
+
+[![Install LearnTube AI](https://img.shields.io/badge/Install-LearnTube%20AI-blue?style=for-the-badge&logo=google-chrome)](https://chromewebstore.google.com/detail/aoenlcikfflpjghonenoibhgefdkfndf?utm_source=learntubeai-readme)
+
+1. **Click the link above** or search "LearnTube AI" in the Chrome Web Store
+2. **Click "Add to Chrome"** to install the extension
+3. **Pin the extension** (optional) - Click the puzzle icon in Chrome's toolbar and pin LearnTube AI
+4. **Follow the setup instructions below** based on your preferred AI provider
+
+### Manual Installation (Developer Mode)
 
 The extension supports two AI provider options with different installation requirements:
 

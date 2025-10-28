@@ -942,7 +942,7 @@ document.getElementById('resetButton').addEventListener('click', async () => {
 document.getElementById('openInstallGuide').addEventListener('click', (event) => {
   event.preventDefault();
   chrome.tabs.create({
-    url: 'https://github.com/Sumit189/LearnTube-AI?tab=readme-ov-file#installation-unpacked-extension'
+    url: 'https://github.com/Sumit189/LearnTube-AI?tab=readme-ov-file#installation'
   });
 });
 
@@ -1308,7 +1308,7 @@ Current video stats:
 - Accuracy: ${accuracy}%
 
 Keep learning with interactive quizzes from LearnTube AI.
-Get the extension: https://github.com/sumit189/learntube-ai`;
+Get the extension: https://chromewebstore.google.com/detail/aoenlcikfflpjghonenoibhgefdkfndf?utm_source=learntubeai`;
     } else {
       // Overall progress
       const progress = await chrome.runtime.sendMessage({ type: 'GET_PROGRESS' });
@@ -1355,7 +1355,7 @@ Lifetime stats:
 - Accuracy: ${accuracy}%
 
 Keep learning with interactive quizzes from LearnTube AI.
-Get the extension: https://github.com/sumit189/learntube-ai`;
+Get the extension: https://chromewebstore.google.com/detail/aoenlcikfflpjghonenoibhgefdkfndf?utm_source=learntubeai-progress-share`;
     }
 
     // Copy to clipboard
