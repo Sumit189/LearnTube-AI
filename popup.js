@@ -1299,16 +1299,13 @@ async function shareProgress() {
 
       const { videoTitle, totalQuestions, totalCorrect, accuracy } = response.data;
 
-      // Create share text for current video
-      shareText = `LearnTube AI Progress — "${videoTitle}"
+      // Create share text for current video (structured format)
+      shareText = `LearnTube AI Progress
+Video: ${videoTitle}
+Performance: ${totalQuestions} questions · ${totalCorrect} correct · ${accuracy}% accuracy
 
-Current video stats:
-- Questions answered: ${totalQuestions}
-- Correct answers: ${totalCorrect}
-- Accuracy: ${accuracy}%
-
-Keep learning with interactive quizzes from LearnTube AI.
-Get the extension: https://chromewebstore.google.com/detail/aoenlcikfflpjghonenoibhgefdkfndf?utm_source=learntubeai`;
+Keep improving with interactive quizzes on every YouTube video.
+https://chromewebstore.google.com/detail/aoenlcikfflpjghonenoibhgefdkfndf?utm_source=learntubeai`;
     } else {
       // Overall progress
       const progress = await chrome.runtime.sendMessage({ type: 'GET_PROGRESS' });
@@ -1345,17 +1342,12 @@ Get the extension: https://chromewebstore.google.com/detail/aoenlcikfflpjghoneno
 
       const accuracy = totalQuestions > 0 ? Math.round((totalScore / totalQuestions) * 100) : 0;
 
-      shareText = `LearnTube AI Progress Summary
+      shareText = `LearnTube AI Progress
+Overall performance: ${totalQuestions} questions · ${totalScore} correct · ${accuracy}% accuracy
+Videos: ${totalVideos}
 
-Lifetime stats:
-- Videos studied: ${totalVideos}
-- Quizzes completed: ${totalQuizzes}
-- Questions answered: ${totalQuestions}
-- Correct answers: ${totalScore}
-- Accuracy: ${accuracy}%
-
-Keep learning with interactive quizzes from LearnTube AI.
-Get the extension: https://chromewebstore.google.com/detail/aoenlcikfflpjghonenoibhgefdkfndf?utm_source=learntubeai-progress-share`;
+Keep improving with interactive quizzes on every YouTube video.
+https://chromewebstore.google.com/detail/aoenlcikfflpjghonenoibhgefdkfndf?utm_source=learntubeai-progress-share`;
     }
 
     // Copy to clipboard

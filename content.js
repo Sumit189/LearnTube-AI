@@ -1929,6 +1929,17 @@ function showQuiz(questions, segmentIndex) {
     return;
   }
   quizActive = true;
+  const makeShuffledIndices = (n) => {
+    const arr = Array(n);
+    for (let i = 0; i < n; i++) arr[i] = i;
+    for (let i = n - 1; i > 0; i--) {
+      const j = (Math.random() * (i + 1)) | 0;
+      [arr[i], arr[j]] = [arr[j], arr[i]];
+    }
+    return arr;
+  };
+
+
   const video = videoElement || document.querySelector('video');
   if (video && !video.paused) {
     video.pause();
@@ -1978,7 +1989,10 @@ function showQuiz(questions, segmentIndex) {
       </div>
       
       <div class="learntube-questions-container">
-        ${questions.map((question, qIndex) => `
+        ${questions.map((question, qIndex) => {
+    const optionCount = Array.isArray(question.options) ? question.options.length : 0;
+    const indices = makeShuffledIndices(optionCount);
+    return `
           <div class="learntube-question" data-question-index="${qIndex}">
             <div class="question-number">Question ${qIndex + 1} of ${questions.length}</div>
             <div class="question-box">
@@ -1986,15 +2000,16 @@ function showQuiz(questions, segmentIndex) {
             </div>
             
             <div class="learntube-options" data-question-index="${qIndex}">
-              ${question.options.map((option, index) => `
-                <button class="learntube-option" data-index="${index}" data-correct="${question.correct}" data-question-index="${qIndex}">
-                  <span class="option-letter" data-letter="${String.fromCharCode(65 + index)}">${String.fromCharCode(65 + index)}</span>
-                  ${option}
+              ${indices.map((origIdx, displayIdx) => `
+                <button class="learntube-option" data-index="${origIdx}" data-correct="${question.correct}" data-question-index="${qIndex}">
+                  <span class="option-letter" data-letter="${String.fromCharCode(65 + displayIdx)}">${String.fromCharCode(65 + displayIdx)}</span>
+                  ${question.options[origIdx]}
                 </button>
               `).join('')}
             </div>
           </div>
-        `).join('')}
+        `;
+  }).join('')}
       </div>
       
       <div class="progress-indicator">
@@ -3329,14 +3344,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === 'UPDATE_THEME') {
     userSettings.theme = message.theme;
     userSettings.themeScope = message.themeScope;
-    
+
     // Update overlay theme if it exists
     const overlay = document.getElementById('learntube-overlay');
     if (overlay) {
       // Both scopes apply theme to quiz popup - the difference is only in popup theming
       overlay.setAttribute('data-theme', message.theme);
     }
-    
+
     sendResponse({ success: true });
     return true;
   }
@@ -3601,13 +3616,13 @@ async function handleLiveChatTrigger() {
 
     // Capture current frame
     const capturedFrame = await captureVideoFrame();
-    
+
     // Extract transcript up to current time
     const currentTranscript = await extractTranscriptUpToTime(videoElement.currentTime);
-    
+
     // Show chat overlay
     showChatOverlay(capturedFrame, currentTranscript);
-    
+
   } catch (error) {
     console.error('LearnTube: Failed to initialize live chat:', error);
     // Show error message to user
@@ -3626,17 +3641,17 @@ async function captureVideoFrame() {
     // Create a canvas to capture the video frame
     const canvas = document.createElement('canvas');
     const ctx = canvas.getContext('2d');
-    
+
     // Set canvas dimensions to match video
     canvas.width = video.videoWidth || video.clientWidth;
     canvas.height = video.videoHeight || video.clientHeight;
-    
+
     // Draw the current video frame to canvas
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-    
+
     // Convert to base64 data URL
     const dataURL = canvas.toDataURL('image/jpeg', 0.8);
-    
+
     return dataURL;
   } catch (error) {
     console.error('LearnTube: Failed to capture video frame:', error);
@@ -3651,7 +3666,7 @@ async function extractTranscriptUpToTime(currentTime) {
     }
 
     // Filter transcript segments up to current time
-    const relevantSegments = transcriptData.filter(segment => 
+    const relevantSegments = transcriptData.filter(segment =>
       segment.start <= currentTime
     );
 
@@ -3693,9 +3708,9 @@ async function summarizeTranscriptForChat(transcriptText) {
 
 async function showChatOverlay(capturedFrame, transcriptText) {
   chatActive = true;
-  
+
   const isLight = userSettings.theme === 'light';
-  
+
   const cardBg = isLight ? '#ffffff' : '#0f0f0f';
   const cardBorder = isLight ? '#e0e0e0' : 'rgba(255, 255, 255, 0.08)';
   const cardColor = isLight ? '#1a1a1a' : '#f1f1f1';
@@ -4074,7 +4089,7 @@ async function initializeChatInterface(capturedFrame, transcriptText) {
 
   // Check if multimodal is supported to determine UI flow
   const isMultimodalSupported = await checkMultimodalSupport();
-  
+
   if (isMultimodalSupported) {
     // Hide welcome message and suggestions since we're showing image and bot message
     const welcomeDiv = document.querySelector('.learntube-chat-welcome');
@@ -4084,7 +4099,7 @@ async function initializeChatInterface(capturedFrame, transcriptText) {
 
     // Add the captured image as a user message
     addImageMessageToChat(capturedFrame);
-    
+
     // Add automatic bot welcome message
     setTimeout(() => {
       addMessageToChat('ai', 'How can I help you with this?');
@@ -4126,10 +4141,10 @@ async function initializeChatInterface(capturedFrame, transcriptText) {
 
       // Get AI response
       const response = await getChatResponse(message, capturedFrame, transcriptText);
-      
+
       // Remove typing indicator
       removeTypingIndicator(typingId);
-      
+
       // Add AI response to chat
       addMessageToChat('ai', response);
 
@@ -4139,7 +4154,7 @@ async function initializeChatInterface(capturedFrame, transcriptText) {
         response_length: response.length,
         ai_provider: userSettings.aiProvider
       });
-      
+
     } catch (error) {
       console.error('LearnTube: Chat response failed:', error);
       removeTypingIndicator(typingId);
@@ -4193,17 +4208,17 @@ function addMessageToChat(sender, message) {
   const chatMessages = document.getElementById('chatMessages');
   const messageDiv = document.createElement('div');
   messageDiv.className = `learntube-chat-message`;
-  
+
   const messageContent = document.createElement('div');
   messageContent.className = `message-${sender}`;
   messageContent.textContent = message;
-  
+
   messageDiv.appendChild(messageContent);
   chatMessages.appendChild(messageDiv);
-  
+
   // Scroll to bottom
   chatMessages.scrollTop = chatMessages.scrollHeight;
-  
+
   // Store in session
   if (chatSession) {
     chatSession.messages.push({ sender, message });
@@ -4215,11 +4230,11 @@ async function checkMultimodalSupport() {
     if (typeof LanguageModel === 'undefined') {
       return false;
     }
-    
+
     const multimodalAvailability = await LanguageModel.availability({
       expectedInputs: [{ type: 'image' }]
     });
-    
+
     console.log('LearnTube: Multimodal availability check:', multimodalAvailability);
     return multimodalAvailability === 'available';
   } catch (error) {
@@ -4232,18 +4247,18 @@ function addImageMessageToChat(imageDataURL) {
   const chatMessages = document.getElementById('chatMessages');
   const messageDiv = document.createElement('div');
   messageDiv.className = `learntube-chat-message`;
-  
+
   const messageContent = document.createElement('div');
   messageContent.className = `message-user`;
-  
+
   // Create image element
   const imageElement = document.createElement('img');
-  
+
   // Add error handling for broken images
-  imageElement.onerror = function() {
+  imageElement.onerror = function () {
     console.error('LearnTube: Failed to load captured video frame image');
     imageElement.style.display = 'none';
-    
+
     // Show fallback text
     const fallbackText = document.createElement('div');
     fallbackText.textContent = '📷 Video frame captured';
@@ -4257,11 +4272,11 @@ function addImageMessageToChat(imageDataURL) {
     `;
     messageContent.appendChild(fallbackText);
   };
-  
-  imageElement.onload = function() {
+
+  imageElement.onload = function () {
     console.log('LearnTube: Video frame image loaded successfully');
   };
-  
+
   imageElement.src = imageDataURL;
   imageElement.style.cssText = `
     max-width: 200px;
@@ -4270,7 +4285,7 @@ function addImageMessageToChat(imageDataURL) {
     object-fit: cover;
     border: 1px solid rgba(255, 255, 255, 0.1);
   `;
-  
+
   // Create caption
   const caption = document.createElement('div');
   caption.textContent = 'Current video frame';
@@ -4280,15 +4295,15 @@ function addImageMessageToChat(imageDataURL) {
     margin-top: 4px;
     text-align: center;
   `;
-  
+
   messageContent.appendChild(imageElement);
   messageContent.appendChild(caption);
   messageDiv.appendChild(messageContent);
   chatMessages.appendChild(messageDiv);
-  
+
   // Scroll to bottom
   chatMessages.scrollTop = chatMessages.scrollHeight;
-  
+
   // Store in session
   if (chatSession) {
     chatSession.messages.push({ sender: 'user', message: '[Image: Current video frame]' });
@@ -4300,7 +4315,7 @@ function addTypingIndicator() {
   const typingDiv = document.createElement('div');
   typingDiv.className = 'learntube-chat-message';
   typingDiv.id = 'typing-indicator';
-  
+
   const typingContent = document.createElement('div');
   typingContent.className = 'message-typing';
   typingContent.innerHTML = `
@@ -4311,13 +4326,13 @@ function addTypingIndicator() {
       <div class="typing-dot"></div>
     </div>
   `;
-  
+
   typingDiv.appendChild(typingContent);
   chatMessages.appendChild(typingDiv);
-  
+
   // Scroll to bottom
   chatMessages.scrollTop = chatMessages.scrollHeight;
-  
+
   return 'typing-indicator';
 }
 
@@ -4353,7 +4368,7 @@ async function getChatResponseOnDevice(userMessage, capturedFrame, transcriptTex
 
   // Check if multimodal is supported (reuse the same check from UI)
   const isMultimodalSupported = await checkMultimodalSupport();
-  
+
   if (!isMultimodalSupported) {
     console.log('LearnTube: Multimodal not available, using text-only mode');
     const session = await LanguageModel.create({
@@ -4361,7 +4376,7 @@ async function getChatResponseOnDevice(userMessage, capturedFrame, transcriptTex
       topK: 40,
       maxOutputTokens: 300
     });
-    
+
     const textOnlyPrompt = `You are a helpful AI tutor analyzing a YouTube video. The user is asking questions about the current video content.
 
 VIDEO CONTEXT:
@@ -4385,7 +4400,7 @@ Please provide a helpful, educational response that:
 IMPORTANT: The transcript tells you what's happening in the video - use it as your primary source. Keep your response SHORT and CONCISE (2-3 sentences maximum).`;
 
     const result = await session.prompt(textOnlyPrompt);
-    
+
     let aiResponse;
     if (typeof result === 'string') {
       aiResponse = result;
@@ -4409,27 +4424,27 @@ IMPORTANT: The transcript tells you what's happening in the video - use it as yo
     });
     console.log('LearnTube: Multimodal session created successfully');
 
-      // Convert base64 data URL to File object for the API
-      let imageFile;
-      try {
-        // Convert base64 data URL to blob
-        const base64Data = capturedFrame.split(',')[1];
-        const binaryString = atob(base64Data);
-        const bytes = new Uint8Array(binaryString.length);
-        for (let i = 0; i < binaryString.length; i++) {
-          bytes[i] = binaryString.charCodeAt(i);
-        }
-        const blob = new Blob([bytes], { type: 'image/jpeg' });
-        imageFile = new File([blob], 'video-frame.jpg', { type: 'image/jpeg' });
-        console.log('LearnTube: Successfully converted image for on-device AI:', imageFile.size, 'bytes');
-        console.log('LearnTube: Image file type:', imageFile.type);
-        console.log('LearnTube: Image file name:', imageFile.name);
-      } catch (error) {
-        console.warn('LearnTube: Failed to convert image for on-device AI, using text-only mode:', error);
-        throw error; // This will trigger the fallback below
+    // Convert base64 data URL to File object for the API
+    let imageFile;
+    try {
+      // Convert base64 data URL to blob
+      const base64Data = capturedFrame.split(',')[1];
+      const binaryString = atob(base64Data);
+      const bytes = new Uint8Array(binaryString.length);
+      for (let i = 0; i < binaryString.length; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
       }
+      const blob = new Blob([bytes], { type: 'image/jpeg' });
+      imageFile = new File([blob], 'video-frame.jpg', { type: 'image/jpeg' });
+      console.log('LearnTube: Successfully converted image for on-device AI:', imageFile.size, 'bytes');
+      console.log('LearnTube: Image file type:', imageFile.type);
+      console.log('LearnTube: Image file name:', imageFile.name);
+    } catch (error) {
+      console.warn('LearnTube: Failed to convert image for on-device AI, using text-only mode:', error);
+      throw error; // This will trigger the fallback below
+    }
 
-      const prompt = `You are a helpful AI tutor analyzing a YouTube video. The user is asking questions about the current video content.
+    const prompt = `You are a helpful AI tutor analyzing a YouTube video. The user is asking questions about the current video content.
 
 VIDEO CONTEXT:
 - Current video frame: [Image captured at ${Math.round(videoElement.currentTime)}s - Analyze the visual content in the image]
@@ -4449,35 +4464,35 @@ Please provide a helpful, educational response that:
 
 IMPORTANT: The transcript is the main source of information - use it to understand what's actually being taught. The image provides visual context but the transcript tells you what's happening. Keep your response SHORT and CONCISE (2-3 sentences maximum).`;
 
-      // Use multimodal prompt with both text and image
-      console.log('LearnTube: Sending multimodal prompt with image to on-device AI');
-      console.log('LearnTube: Image file details:', {
-        name: imageFile.name,
-        type: imageFile.type,
-        size: imageFile.size
-      });
-      
-      const result = await session.prompt([
-        {
-          role: 'user',
-          content: [
-            { type: 'text', value: prompt },
-            { type: 'image', value: imageFile }
-          ]
-        }
-      ]);
-      console.log('LearnTube: Received response from on-device AI:', typeof result);
-      
-      let aiResponse;
-      if (typeof result === 'string') {
-        aiResponse = result;
-      } else if (result && typeof result === 'object') {
-        aiResponse = result.response || result.text || result.content || result.output || JSON.stringify(result);
-      } else {
-        aiResponse = String(result);
-      }
+    // Use multimodal prompt with both text and image
+    console.log('LearnTube: Sending multimodal prompt with image to on-device AI');
+    console.log('LearnTube: Image file details:', {
+      name: imageFile.name,
+      type: imageFile.type,
+      size: imageFile.size
+    });
 
-      return aiResponse.trim();
+    const result = await session.prompt([
+      {
+        role: 'user',
+        content: [
+          { type: 'text', value: prompt },
+          { type: 'image', value: imageFile }
+        ]
+      }
+    ]);
+    console.log('LearnTube: Received response from on-device AI:', typeof result);
+
+    let aiResponse;
+    if (typeof result === 'string') {
+      aiResponse = result;
+    } else if (result && typeof result === 'object') {
+      aiResponse = result.response || result.text || result.content || result.output || JSON.stringify(result);
+    } else {
+      aiResponse = String(result);
+    }
+
+    return aiResponse.trim();
 
   } catch (error) {
     console.error('LearnTube: Multimodal processing failed:', error);
@@ -4524,7 +4539,7 @@ IMPORTANT: The transcript tells you what's happening in the video - use it as yo
       contents: [{
         parts: [
           { text: prompt },
-          { 
+          {
             inline_data: {
               mime_type: "image/jpeg",
               data: capturedFrame.split(',')[1] // Remove data:image/jpeg;base64, prefix
